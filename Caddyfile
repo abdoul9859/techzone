@@ -1,0 +1,4 @@
+techzonesn.cc {
+    reverse_proxy app:8000
+}
+

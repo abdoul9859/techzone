@@ -1,0 +1,77 @@
+# Docker Compose configuration for TECHZONE
+# Note: 'version' is obsolete in recent Docker Compose versions
+
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: techzone_app
+    environment:
+      # SQLite - base de données localisée dans le dossier data
+      DATABASE_URL: sqlite:////app/data/techzone.db
+      DB_SSLMODE: "disable"
+      HOST: 0.0.0.0
+      PORT: "8000"
+      RELOAD: "false"
+      INIT_DB_ON_STARTUP: "true"
+      SEED_DEFAULT_DATA: "true"
+      ENABLE_MIGRATIONS_WORKER: "false"
+      GOOGLE_SHEETS_CREDENTIALS_PATH: /app/credentials/symbolic-folio-470422-v3-71562b79a03f.json
+      GOOGLE_SHEETS_SPREADSHEET_ID: 1VHMujdZw-iPs28pz1rC9Ol72T9l9YTW6Wr9j5ujEsXQ
+      GOOGLE_SHEETS_WORKSHEET_NAME: Les produits
+      GOOGLE_SHEETS_AUTO_SYNC: "true"
+      # n8n base URL pour les webhooks (sans path)
+      N8N_BASE_URL: "http://n8n:5678"
+      # URL publique de l'application pour les liens accessibles depuis n8n
+      APP_PUBLIC_URL: "https://techzonesn.cc"
+      APP_NAME: "TECHZONE"
+      # Debt reminder / Twilio will be injected from .env via env_file above
+    # ports:
+    #   - "80:8000"
+    volumes:
+      - ./static/uploads:/app/static/uploads
+      - ./static/js:/app/static/js
+      - ./static/css:/app/static/css
+      - ./templates:/app/templates
+      - ./logs:/app/logs
+      - ./credentials:/app/credentials:ro
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:latest
+    container_name: techzone_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+#  whatsapp:
+#    build:
+#      context: ./whatsapp-service
+#      dockerfile: Dockerfile
+#    container_name: whatsapp_service
+#    ports:
+#      - "0.0.0.0:3001:3001"
+#    volumes:
+#      - ./whatsapp-service/whatsapp-session:/app/whatsapp-session
+#    restart: unless-stopped
+#    environment:
+#      PORT: "3001"
+
+volumes:
+  caddy_data:
+  caddy_config:
