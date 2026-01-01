@@ -47,14 +47,14 @@ def run():
     db = SessionLocal()
     try:
         # Clients
-        upsert_client(db, "Nitek Client A", contact="Alice", email="client.a@nitek.example", phone="+221 77 100 00 01", address="Dakar", city="Dakar", country="Sénégal")
-        upsert_client(db, "Nitek Client B", contact="Brahim", email="client.b@nitek.example", phone="+221 77 100 00 02", address="Thies", city="Thiès", country="Sénégal")
-        upsert_client(db, "Nitek Client C", contact="Carine", email="client.c@nitek.example", phone="+221 77 100 00 03", address="Saint-Louis", city="Saint-Louis", country="Sénégal")
+        upsert_client(db, "TECHZONE Client A", contact="Alice", email="client.a@techzone.example", phone="+221 77 100 00 01", address="Dakar", city="Dakar", country="Sénégal")
+        upsert_client(db, "TECHZONE Client B", contact="Brahim", email="client.b@techzone.example", phone="+221 77 100 00 02", address="Thies", city="Thiès", country="Sénégal")
+        upsert_client(db, "TECHZONE Client C", contact="Carine", email="client.c@techzone.example", phone="+221 77 100 00 03", address="Saint-Louis", city="Saint-Louis", country="Sénégal")
 
         # Products
-        p1 = upsert_product(db, "Nitek Phone A", description="Smartphone 128Go", quantity=0, price=Decimal("150000.00"), purchase_price=Decimal("120000.00"), category="Smartphones", brand="Nitek", model="A1", barcode="NITEK-A1-0001")
-        p2 = upsert_product(db, "Nitek Phone B", description="Smartphone 256Go", quantity=0, price=Decimal("220000.00"), purchase_price=Decimal("180000.00"), category="Smartphones", brand="Nitek", model="B2", barcode="NITEK-B2-0001")
-        p3 = upsert_product(db, "Nitek Accessory A", description="Chargeur rapide 30W", quantity=0, price=Decimal("15000.00"), purchase_price=Decimal("10000.00"), category="Accessoires", brand="Nitek", model="C30", barcode="NITEK-C30-0001")
+        p1 = upsert_product(db, "TECHZONE Phone A", description="Smartphone 128Go", quantity=0, price=Decimal("150000.00"), purchase_price=Decimal("120000.00"), category="Smartphones", brand="TECHZONE", model="A1", barcode="TECHZONE-A1-0001")
+        p2 = upsert_product(db, "TECHZONE Phone B", description="Smartphone 256Go", quantity=0, price=Decimal("220000.00"), purchase_price=Decimal("180000.00"), category="Smartphones", brand="TECHZONE", model="B2", barcode="TECHZONE-B2-0001")
+        p3 = upsert_product(db, "TECHZONE Accessory A", description="Chargeur rapide 30W", quantity=0, price=Decimal("15000.00"), purchase_price=Decimal("10000.00"), category="Accessoires", brand="TECHZONE", model="C30", barcode="TECHZONE-C30-0001")
 
         # Stock IN
         ensure_stock_in(db, p1, 5, Decimal("120000.00"))

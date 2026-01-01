@@ -22,6 +22,7 @@ let clients = [];
 let products = [];
 let productVariantsByProductId = new Map(); // product_id -> [{variant_id, imei_serial, barcode, is_sold}]
 let invoiceItems = [];
+let exchangeItems = []; // Produits échangés (sortants)
 // Tri courant (pour la liste principale)
 let currentSort = { by: 'created_at', dir: 'desc' };
 // Quantités d'origine issues du devis (si disponibles) par product_id
@@ -1939,8 +1940,10 @@ async function saveInvoice(status) {
         const prevStates = [];
         try { footerButtons.forEach(btn => { prevStates.push([btn, btn.disabled, btn.innerHTML]); btn.disabled = true; }); } catch(e) {}
         document.body.style.cursor = 'wait';
+        const invoiceType = document.getElementById('invoiceType')?.value || 'normal';
         const invoiceData = {
             invoice_number: document.getElementById('invoiceNumber').value,
+            invoice_type: invoiceType,
             client_id: parseInt(document.getElementById('clientSelect').value),
             date: document.getElementById('invoiceDate').value,
             due_date: document.getElementById('dueDate').value || null,
@@ -1962,6 +1965,14 @@ async function saveInvoice(status) {
                 const selectedDuration = document.querySelector('input[name="warrantyDuration"]:checked');
                 return selectedDuration ? parseInt(selectedDuration.value) : 12;
             })(),
+            exchange_items: invoiceType === 'exchange' ? exchangeItems.map(item => ({
+                product_id: item.product_id,
+                product_name: item.product_name || '',
+                quantity: item.quantity || 1,
+                variant_id: item.variant_id || null,
+                variant_imei: item.variant_imei || null,
+                notes: item.notes || null
+            })) : [],
             items: invoiceItems
                 .flatMap(item => {
                     // Ligne de section (aucun montant, juste un titre visuel)
@@ -3221,4 +3232,114 @@ async function populatePaymentMethodSelects(selectFirst = false) {
         // En cas d'erreur on ne bloque pas l'UI, on garde les valeurs par défaut du HTML
         console.warn('Impossible de charger les méthodes de paiement configurées:', e);
     }
+}
+
+// ============ GESTION DES FACTURES D'ÉCHANGE ============
+
+function toggleExchangeMode() {
+    const typeSelect = document.getElementById('invoiceType');
+    const exchangeSection = document.getElementById('exchangeItemsSection');
+    const itemsTitle = document.getElementById('itemsSectionTitle');
+    
+    if (!typeSelect || !exchangeSection) return;
+    
+    const isExchange = typeSelect.value === 'exchange';
+    exchangeSection.style.display = isExchange ? 'block' : 'none';
+    
+    if (itemsTitle) {
+        const h6 = itemsTitle.querySelector('h6');
+        if (h6) {
+            h6.textContent = isExchange ? 'Articles (produits donnés au client)' : 'Articles';
+        }
+    }
+}
+
+function addExchangeItem() {
+    const itemId = Date.now();
+    exchangeItems.push({
+        id: itemId,
+        product_id: null,
+        product_name: '',
+        variant_id: null,
+        variant_imei: '',
+        quantity: 1,
+        notes: ''
+    });
+    renderExchangeItems();
+}
+
+function removeExchangeItem(itemId) {
+    exchangeItems = exchangeItems.filter(item => item.id !== itemId);
+    renderExchangeItems();
+}
+
+function renderExchangeItems() {
+    const tbody = document.getElementById('exchangeItemsBody');
+    if (!tbody) return;
+    
+    if (exchangeItems.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Aucun produit échangé</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = exchangeItems.map(item => {
+        const productOptions = products.map(p => 
+            `<option value="${p.product_id}" ${item.product_id === p.product_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+        ).join('');
+        
+        return `
+            <tr data-item-id="${item.id}">
+                <td>
+                    <select class="form-select form-select-sm" onchange="updateExchangeItem(${item.id}, 'product_id', this.value)">
+                        <option value="">Sélectionner un produit...</option>
+                        ${productOptions}
+                    </select>
+                </td>
+                <td>
+                    <input type="text" class="form-control form-control-sm" 
+                           placeholder="IMEI/Numéro série" 
+                           value="${escapeHtml(item.variant_imei || '')}"
+                           onchange="updateExchangeItem(${item.id}, 'variant_imei', this.value)">
+                </td>
+                <td>
+                    <input type="number" class="form-control form-control-sm" 
+                           min="1" value="${item.quantity || 1}"
+                           onchange="updateExchangeItem(${item.id}, 'quantity', parseInt(this.value) || 1)">
+                </td>
+                <td>
+                    <input type="text" class="form-control form-control-sm" 
+                           placeholder="Notes..."
+                           value="${escapeHtml(item.notes || '')}"
+                           onchange="updateExchangeItem(${item.id}, 'notes', this.value)">
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeExchangeItem(${item.id})">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function updateExchangeItem(itemId, field, value) {
+    const item = exchangeItems.find(i => i.id === itemId);
+    if (!item) return;
+    
+    if (field === 'product_id') {
+        item.product_id = value ? parseInt(value) : null;
+        const product = products.find(p => p.product_id === parseInt(value));
+        if (product) {
+            item.product_name = product.name;
+        }
+    } else {
+        item[field] = value;
+    }
+}
+
+function escapeHtml(text) {
+    if (typeof text !== 'string') return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }

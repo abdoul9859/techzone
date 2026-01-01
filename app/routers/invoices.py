@@ -8,10 +8,13 @@ from ..database import (
     get_db,
     Invoice,
     InvoiceItem,
+    InvoiceExchangeItem,
     InvoicePayment,
     Client,
     Product,
     ProductVariant,
+    ProductVariantAttribute,
+    Category,
     DeliveryNote,
     DeliveryNoteItem,
     SupplierInvoice,
@@ -338,6 +341,7 @@ async def get_invoice(
 
     # Forcer chargement relations
     _ = invoice.items
+    _ = invoice.exchange_items if hasattr(invoice, 'exchange_items') else []
     _ = invoice.payments
 
     client_name = None
@@ -354,6 +358,7 @@ async def get_invoice(
     return {
         "invoice_id": invoice.invoice_id,
         "invoice_number": invoice.invoice_number,
+        "invoice_type": getattr(invoice, 'invoice_type', 'normal'),
         "client_id": invoice.client_id,
         "client_name": client_name,
         "client": {"name": client_name, "phone": client_phone} if client_name else None,
@@ -387,6 +392,17 @@ async def get_invoice(
                 "external_price": float(it.external_price) if it.external_price is not None else None,
                 "external_profit": float(it.external_profit) if it.external_profit is not None else None
             } for it in (invoice.items or [])
+        ],
+        "exchange_items": [
+            {
+                "exchange_item_id": ex.exchange_item_id,
+                "product_id": ex.product_id,
+                "product_name": ex.product_name,
+                "quantity": ex.quantity,
+                "variant_id": ex.variant_id,
+                "variant_imei": ex.variant_imei,
+                "notes": ex.notes
+            } for ex in (getattr(invoice, 'exchange_items', []) or [])
         ],
         "payments": [
             {
@@ -436,6 +452,7 @@ async def create_invoice(
         # Créer la facture
         db_invoice = Invoice(
             invoice_number=final_number,
+            invoice_type=getattr(invoice_data, 'invoice_type', 'normal'),
             client_id=invoice_data.client_id,
             quotation_id=invoice_data.quotation_id,
             date=invoice_data.date,
@@ -618,6 +635,97 @@ async def create_invoice(
                 # Ne pas bloquer la création de facture si la sync Google Sheets échoue
                 logging.warning(f"Échec de synchronisation Google Sheets pour le produit {item_data.product_id}: {e}")
                 pass
+        
+        # Gérer les factures d'échange
+        if getattr(invoice_data, 'invoice_type', 'normal') == 'exchange':
+            exchange_items = getattr(invoice_data, 'exchange_items', []) or []
+            
+            # Traiter les produits échangés (sortants - ceux que le client donne)
+            for exchange_item in exchange_items:
+                exchange_product = None
+                if exchange_item.product_id:
+                    exchange_product = db.query(Product).filter(Product.product_id == exchange_item.product_id).first()
+                
+                db_exchange_item = InvoiceExchangeItem(
+                    invoice_id=db_invoice.invoice_id,
+                    product_id=exchange_item.product_id,
+                    product_name=exchange_item.product_name,
+                    quantity=exchange_item.quantity,
+                    variant_id=getattr(exchange_item, 'variant_id', None),
+                    variant_imei=getattr(exchange_item, 'variant_imei', None),
+                    notes=getattr(exchange_item, 'notes', None)
+                )
+                db.add(db_exchange_item)
+                
+                # Augmenter le stock du produit échangé
+                if exchange_product:
+                    if exchange_item.variant_id:
+                        # Pour les variantes, créer une nouvelle variante disponible
+                        variant = db.query(ProductVariant).filter(ProductVariant.variant_id == exchange_item.variant_id).first()
+                        if variant:
+                            # Réactiver la variante si elle était vendue
+                            variant.is_sold = False
+                    else:
+                        # Produit sans variantes: augmenter la quantité
+                        exchange_product.quantity = (exchange_product.quantity or 0) + exchange_item.quantity
+                    
+                    # Créer un mouvement de stock d'entrée
+                    try:
+                        create_stock_movement(
+                            db=db,
+                            product_id=exchange_item.product_id,
+                            quantity=exchange_item.quantity,
+                            movement_type="IN",
+                            reference_type="EXCHANGE",
+                            reference_id=db_invoice.invoice_id,
+                            notes=f"Échange - Produit reçu - Facture {final_number}"
+                        )
+                    except Exception:
+                        pass
+            
+            # Traiter les produits entrants (ceux qu'on donne au client) - créer nouveaux produits si nécessaire
+            for item_data in invoice_data.items:
+                if getattr(item_data, 'create_as_new_product', False):
+                    # Créer un nouveau produit
+                    from decimal import Decimal
+                    
+                    category_name = getattr(item_data, 'new_product_category', None) or 'Divers'
+                    category = db.query(Category).filter(Category.name == category_name).first()
+                    requires_variants = category.requires_variants if category else False
+                    
+                    new_product = Product(
+                        name=item_data.product_name[:500],
+                        description=None,
+                        quantity=1 if requires_variants else item_data.quantity,
+                        price=Decimal(str(item_data.price)),
+                        purchase_price=Decimal("0"),
+                        category=category_name,
+                        condition=getattr(item_data, 'new_product_condition', 'neuf') or 'neuf',
+                        has_unique_serial=requires_variants,
+                        entry_date=invoice_data.date
+                    )
+                    db.add(new_product)
+                    db.flush()
+                    
+                    # Créer la variante si nécessaire
+                    if requires_variants and getattr(item_data, 'new_variant_imei', None):
+                        new_variant = ProductVariant(
+                            product_id=new_product.product_id,
+                            imei_serial=getattr(item_data, 'new_variant_imei', None),
+                            barcode=getattr(item_data, 'new_variant_barcode', None),
+                            condition=new_product.condition,
+                            is_sold=True  # Marquer comme vendu car dans la facture
+                        )
+                        db.add(new_variant)
+                    
+                    # Mettre à jour l'InvoiceItem avec le nouveau product_id
+                    db_item = db.query(InvoiceItem).filter(
+                        InvoiceItem.invoice_id == db_invoice.invoice_id,
+                        InvoiceItem.product_name == item_data.product_name
+                    ).order_by(InvoiceItem.item_id.desc()).first()
+                    
+                    if db_item:
+                        db_item.product_id = new_product.product_id
         
         db.commit()
         db.refresh(db_invoice)
@@ -1897,7 +2005,7 @@ async def send_invoice_whatsapp(
             raise HTTPException(status_code=404, detail="Facture non trouvée")
         
         # Construire l'URL du PDF de la facture (accessible depuis n8n via réseau Docker)
-        app_public_url = os.getenv("APP_PUBLIC_URL", "http://nitek_app:8000")
+        app_public_url = os.getenv("APP_PUBLIC_URL", "http://techzone_app:8000")
         pdf_url = f"{app_public_url}/invoices/print/{data.invoice_id}"
         
         # Appeler le webhook n8n pour envoyer via WhatsApp
@@ -1943,7 +2051,7 @@ async def send_invoice_email(
             raise HTTPException(status_code=404, detail="Facture non trouvée")
         
         # Construire l'URL HTML de la facture (même URL que WhatsApp)
-        app_public_url = os.getenv("APP_PUBLIC_URL", "http://nitek_app:8000")
+        app_public_url = os.getenv("APP_PUBLIC_URL", "http://techzone_app:8000")
         pdf_url = f"{app_public_url}/invoices/print/{data.invoice_id}"
         
         # Appeler le webhook n8n pour envoyer par email

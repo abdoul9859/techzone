@@ -3,11 +3,11 @@
 Outil de purge du cache AppCache.
 
 Exemples d'utilisation (dans l'hôte):
-  docker exec -it Geek Technologie_app python scripts/clear_cache.py --all
-  docker exec -it Geek Technologie_app python scripts/clear_cache.py --prefix migration_logs:
-  docker exec -it Geek Technologie_app python scripts/clear_cache.py --clients-reminders
-  docker exec -it Geek Technologie_app python scripts/clear_cache.py --expired-only
-  docker exec -it Geek Technologie_app python scripts/clear_cache.py --prefix stats: --dry-run
+  docker exec -it techzone_app python scripts/clear_cache.py --all
+  docker exec -it techzone_app python scripts/clear_cache.py --prefix migration_logs:
+  docker exec -it techzone_app python scripts/clear_cache.py --clients-reminders
+  docker exec -it techzone_app python scripts/clear_cache.py --expired-only
+  docker exec -it techzone_app python scripts/clear_cache.py --prefix stats: --dry-run
 
 Ce script s'appuie sur la configuration DB de app.database (DATABASE_URL) déjà injectée via l'environnement.
 """

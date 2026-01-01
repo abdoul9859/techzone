@@ -1,246 +1,608 @@
 <!DOCTYPE html>
-<html lang="fr" style="margin:0;padding:0;width:100%;height:100%;">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Devis {{ quotation.quotation_number }}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-
         :root {
-            --primary: #000000;
-            --secondary: #4b5563;
-            --muted: #9ca3af;
-            --border: #e5e7eb;
-            --bg-soft: #f8fafc;
+            --primary: #1a1a1a;
+            --primary-dark: #0a0a0a;
+            --dark: #1a1a1a;
+            --gray-light: #f5f5f5;
+            --gray: #e0e0e0;
+            --text: #333333;
+            --text-light: #666666;
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        @page {
+            size: A4;
+            margin: 0;
+        }
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f1f5f9;
-            color: #1e293b;
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
             font-size: 10pt;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+            color: var(--text);
+            background: #e0e0e0;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
         }
 
-        .page-controls { position: fixed; top: 20px; z-index: 1000; display: flex; gap: 10px; }
-        .btn-action { padding: 10px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; border: none; cursor: pointer; transition: all 0.2s; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
-        .btn-print { background: #000; color: #fff; }
-        .btn-return { background: #fff; color: #000; border: 1px solid #e2e8f0; }
+        /* Contrôles d'impression */
+        .print-controls {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            display: flex;
+            gap: 12px;
+            background: white;
+            padding: 12px 20px;
+            border-radius: 50px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+        }
 
-        .container-a4 {
+        .btn {
+            padding: 10px 28px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 13px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: var(--dark);
+            border: 1px solid var(--gray);
+        }
+
+        .btn-secondary:hover {
+            background: var(--gray-light);
+        }
+
+        /* Page A4 */
+        .page {
             width: 210mm;
             min-height: 297mm;
-            background: #fff;
-            padding: 8mm 15mm; /* Réduit le padding haut/bas de 15mm à 8mm */
-            margin: 60px 0;
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.1);
-            display: flex;
-            flex-direction: column;
+            background: white;
+            margin: 80px auto 40px;
             position: relative;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+            overflow: hidden;
         }
 
-        @media print {
-            body { background: #fff; }
-            .container-a4 { margin: 0; box-shadow: none; width: 210mm; height: 297mm; }
-            .no-print { display: none !important; }
-            @page { size: A4; margin: 0; }
+        /* Bande colorée en haut */
+        .top-bar {
+            background: var(--dark);
+            height: 25px;
+            width: 100%;
         }
 
-        /* HEADER */
+        .page-content {
+            padding: 25px 35px 20px;
+        }
+
+        /* En-tête */
         .header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-end; /* Changé pour gagner de la place */
-            border-bottom: 2px solid #000;
-            padding-bottom: 15px; /* Réduit de 30px */
-            margin-bottom: 25px; /* Réduit de 40px */
+            align-items: flex-start;
+            margin-bottom: 30px;
         }
 
-        .brand h1 { font-size: 28px; font-weight: 900; letter-spacing: -0.05em; text-transform: uppercase; margin-bottom: 2px; } /* Réduit de 32px */
-        .brand p { font-size: 9px; color: var(--secondary); text-transform: uppercase; letter-spacing: 0.1em; }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 800;
+            font-size: 24px;
+        }
+
+        .brand-logo {
+            max-height: 60px;
+            max-width: 180px;
+            object-fit: contain;
+        }
+
+        .brand-text h1 {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--dark);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .brand-text p {
+            font-size: 8px;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .doc-title {
+            font-size: 42px;
+            font-weight: 800;
+            color: var(--primary);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        /* Section Client et Total */
+        .client-section {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--gray);
+        }
+
+        .client-info h3 {
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+
+        .client-info h2 {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--dark);
+            margin-bottom: 5px;
+        }
+
+        .client-info p {
+            font-size: 11px;
+            color: var(--text-light);
+            margin-bottom: 2px;
+        }
+
+        .total-section {
+            text-align: right;
+        }
+
+        .total-due-label {
+            font-size: 12px;
+            color: var(--text-light);
+            margin-bottom: 2px;
+        }
+
+        .total-due-amount {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 10px;
+        }
 
         .doc-meta {
-            text-align: right;
-            background: var(--bg-soft);
-            padding: 12px 20px; /* Réduit de 20px 30px */
-            border-radius: 4px;
-            border: 1px solid var(--border);
-        }
-        .doc-title { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 2px; }
-        .doc-id { font-size: 13px; font-weight: 600; color: var(--secondary); margin-bottom: 4px; }
-        .doc-date { font-size: 10px; font-weight: 500; color: var(--muted); }
-
-        /* BILLING INFO */
-        .info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 40px; /* Réduit */
-            margin-bottom: 30px; /* Réduit */
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
         }
 
-        .info-section-title {
-            font-size: 8.5px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            color: var(--muted);
-            margin-bottom: 10px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid var(--border);
+        .doc-meta-row {
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+            font-size: 10px;
         }
 
-        .client-name { font-size: 16px; font-weight: 800; margin-bottom: 5px; color: #000; }
-        .client-details p { font-size: 11px; color: var(--secondary); margin-bottom: 2px; }
-
-        .payment-card {
-            background: var(--bg-soft);
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
+        .doc-meta-row .label {
+            color: var(--text-light);
         }
-        .payment-item { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 11px; }
 
-        /* TABLE */
-        .items-container { flex: 1; }
-        table { width: 100%; border-collapse: collapse; }
-        thead th {
-            background: #000;
-            color: #fff;
-            padding: 10px 15px;
-            font-size: 9px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
+        .doc-meta-row .value {
+            color: var(--dark);
+            font-weight: 500;
+            min-width: 100px;
             text-align: left;
         }
-        tbody td {
-            padding: 10px 15px; /* Réduit */
-            border-bottom: 1px solid var(--border);
+
+        /* Tableau des produits */
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        .items-table thead tr {
+            background: var(--dark);
+        }
+
+        .items-table thead th {
+            color: white;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 12px 15px;
+            text-align: left;
+        }
+
+        .items-table thead th:first-child {
+            position: relative;
+            padding-left: 25px;
+        }
+
+        .items-table thead th:first-child::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 8px;
+            background: var(--primary);
+        }
+
+        .items-table thead th.col-price,
+        .items-table thead th.col-qty,
+        .items-table thead th.col-total {
+            text-align: center;
+        }
+
+        .items-table tbody tr {
+            border-bottom: 1px solid var(--gray);
+        }
+
+        .items-table tbody tr:nth-child(even) {
+            background: var(--gray-light);
+        }
+
+        .items-table tbody td {
+            padding: 14px 15px;
+            font-size: 11px;
             vertical-align: top;
         }
 
-        .col-desc { width: 55%; }
-        .col-qty { width: 10%; text-align: center; }
-        .col-price { width: 17.5%; text-align: right; }
-        .col-total { width: 17.5%; text-align: right; font-weight: 700; }
-
-        .item-name { font-weight: 700; font-size: 12px; margin-bottom: 2px; color: #000; }
-
-        /* TOTALS */
-        .summary-block {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 10px;
-            margin-bottom: 15px;
-        }
-        .totals-table { width: 300px; }
-        .total-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
-        .total-row.grand {
-            border-top: 2px solid #000;
-            margin-top: 5px;
-            padding-top: 10px;
-            font-size: 18px;
-            font-weight: 900;
-            color: #000;
+        .items-table tbody td:first-child {
+            padding-left: 25px;
         }
 
-        /* SIGNATURE */
-        .signature-area {
-            display: flex;
-            justify-content: flex-end;
+        .item-name {
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 2px;
+        }
+
+        .item-desc {
+            font-size: 10px;
+            color: var(--text-light);
+        }
+
+        .col-price, .col-qty, .col-total {
+            text-align: center;
+        }
+
+        .col-total {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        /* Section inférieure */
+        .bottom-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
             margin-bottom: 20px;
         }
-        .sig-box { width: 280px; text-align: center; } /* Augmenté de 220px à 280px */
-        .sig-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 15px; }
-        .sig-line { border-top: 1px solid #000; padding-top: 8px; font-size: 10px; font-weight: 600; }
-        .sig-img { max-height: 120px; max-width: 240px; object-fit: contain; margin-bottom: 5px; } /* Nouvelle classe */
 
-        /* FOOTER */
-        .footer {
-            border-top: 1px solid #000;
-            padding-top: 15px;
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
+        /* Validité */
+        .validity-section h4 {
+            color: var(--primary);
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 12px;
         }
-        .footer-col h4 { font-size: 8px; font-weight: 900; text-transform: uppercase; margin-bottom: 5px; color: #000; }
-        .footer-col p { font-size: 9px; color: var(--secondary); margin-bottom: 2px; line-height: 1.3; }
-        .footer-bottom {
-            grid-column: span 3;
-            text-align: center;
-            margin-top: 10px;
-            font-size: 8px;
-            color: var(--muted);
+
+        .validity-details {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 5px 15px;
+            font-size: 11px;
+        }
+
+        .validity-details .label {
+            color: var(--text-light);
+        }
+
+        .validity-details .value {
+            color: var(--dark);
             font-weight: 500;
+        }
+
+        .validity-badge {
+            display: inline-block;
+            background: #f0f0f0;
+            color: #333333;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-top: 10px;
+            border: 1px solid #ddd;
+        }
+
+        /* Totaux */
+        .totals-section {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .totals-table {
+            width: 100%;
+            max-width: 280px;
+        }
+
+        .totals-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 11px;
+            border-bottom: 1px solid var(--gray);
+        }
+
+        .totals-row .label {
+            color: var(--text-light);
+        }
+
+        .totals-row .value {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .totals-row.grand {
+            background: var(--primary);
+            color: white;
+            padding: 12px 15px;
+            margin-top: 10px;
+            border: none;
+        }
+
+        .totals-row.grand .label,
+        .totals-row.grand .value {
+            color: white;
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        /* Conditions */
+        .conditions-section {
+            background: #f0f0f0;
+            border-left: 4px solid #666666;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .conditions-section h4 {
+            font-size: 11px;
+            font-weight: 700;
+            color: #333333;
+            margin-bottom: 8px;
+        }
+
+        .conditions-section p {
+            font-size: 10px;
+            color: #555555;
+            line-height: 1.6;
+        }
+
+        /* Signatures */
+        .signatures-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            margin-bottom: 25px;
+        }
+
+        .signature-box {
+            text-align: center;
+        }
+
+        .signature-line {
+            border-bottom: 1px solid var(--dark);
+            height: 50px;
+            margin-bottom: 8px;
+            position: relative;
+        }
+
+        .signature-img {
+            max-height: 45px;
+            max-width: 150px;
+            position: absolute;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .signature-label {
+            font-size: 10px;
+            color: var(--text-light);
+        }
+
+        /* Footer */
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 15px;
+            border-top: 1px solid var(--gray);
+        }
+
+        .footer-contact {
+            display: flex;
+            gap: 25px;
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 10px;
+            color: var(--text-light);
+        }
+
+        .contact-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+        }
+
+        .footer-thanks {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--dark);
+        }
+
+        @media print {
+            html, body {
+                background: white;
+            }
+
+            .print-controls {
+                display: none !important;
+            }
+
+            .page {
+                margin: 0;
+                box-shadow: none;
+                width: 210mm;
+                height: 297mm;
+            }
+
+            .items-table thead {
+                display: table-header-group;
+            }
+
+            .items-table tbody tr {
+                page-break-inside: avoid;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="page-controls no-print">
-        <button onclick="window.location.href='/quotations'" class="btn-action btn-return">Retour</button>
-        <button onclick="window.print()" class="btn-action btn-print">Imprimer le Devis</button>
+    <div class="print-controls">
+        <a href="/quotations" class="btn btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Retour
+        </a>
+        <button onclick="window.print()" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>
+                <rect x="6" y="14" width="12" height="8"/>
+            </svg>
+            Imprimer
+        </button>
     </div>
 
-    <div class="container-a4">
-        <!-- HEADER -->
-        <div class="header">
-            <div class="brand">
-                {% set _logo = settings.logo or settings.logo_path %}
-                {% if _logo %}
-                    <img src="{{ _logo }}" alt="Logo" style="max-height: 100px; max-width: 300px; object-fit: contain; margin-bottom: 5px;">
-                {% else %}
-                    <h1>{{ settings.company_name or 'TECHZONE' }}</h1>
-                {% endif %}
-                <p style="margin-top: 10px;">Solutions Technologiques & Mobiles</p>
-            </div>
-            <div class="doc-meta">
-                <div class="doc-title">Devis</div>
-                <div class="doc-id">#{{ quotation.quotation_number }}</div>
-                <div class="doc-date">{{ quotation.date | format_date }}</div>
-            </div>
-        </div>
+    <div class="page">
+        <!-- Bande en haut -->
+        <div class="top-bar"></div>
 
-        <!-- INFO GRID -->
-        <div class="info-grid">
-            <div class="client-details">
-                <div class="info-section-title">Devis adressé à</div>
-                {% if quotation.client %}
-                    <div class="client-name">{{ quotation.client.name }}</div>
-                    <p>{{ quotation.client.address or 'Adresse non spécifiée' }}</p>
-                    <p>Tél: {{ quotation.client.phone or '-' }}</p>
-                    <p>{{ quotation.client.email or '' }}</p>
-                {% else %}
-                    <div class="client-name">Client</div>
-                {% endif %}
-            </div>
-            <div class="payment-card">
-                <div class="info-section-title">Informations Devis</div>
-                <div class="payment-item">
-                    <span class="payment-label">Validité</span>
-                    <span class="payment-value">{{ quotation.expiry_date | format_date }}</span>
+        <div class="page-content">
+            <!-- En-tête -->
+            <header class="header">
+                <div class="brand">
+                    {% set _logo = settings.logo or settings.logo_path %}
+                    {% if _logo %}
+                        <img src="{{ _logo }}" alt="Logo" class="brand-logo">
+                    {% else %}
+                        <div class="brand-icon">T</div>
+                        <div class="brand-text">
+                            <h1>{{ settings.company_name or 'TECHZONE' }}</h1>
+                            <p>Solutions Technologiques</p>
+                        </div>
+                    {% endif %}
                 </div>
-                <div class="payment-item">
-                    <span class="payment-label">État du devis</span>
-                    <span class="payment-value" style="text-transform: uppercase;">{{ quotation.status or 'En attente' }}</span>
-                </div>
-            </div>
-        </div>
+                <div class="doc-title">DEVIS</div>
+            </header>
 
-        <!-- ITEMS TABLE -->
-        <div class="items-container">
-            <table>
+            <!-- Section Client et Total -->
+            <div class="client-section">
+                <div class="client-info">
+                    <h3>Devis pour:</h3>
+                    {% if quotation.client %}
+                        <h2>{{ quotation.client.name }}</h2>
+                        {% if quotation.client.contact %}<p>{{ quotation.client.contact }}</p>{% endif %}
+                        {% if quotation.client.phone %}<p>Tél: {{ quotation.client.phone }}</p>{% endif %}
+                        {% if quotation.client.email %}<p>Email: {{ quotation.client.email }}</p>{% endif %}
+                    {% else %}
+                        <h2>Client</h2>
+                    {% endif %}
+                </div>
+                <div class="total-section">
+                    <div class="total-due-label">Montant Total</div>
+                    <div class="total-due-amount">{{ (quotation.total or 0) | format_cfa }}</div>
+                    <div class="doc-meta">
+                        <div class="doc-meta-row">
+                            <span class="label">N° Devis:</span>
+                            <span class="value">{{ quotation.quotation_number }}</span>
+                        </div>
+                        <div class="doc-meta-row">
+                            <span class="label">Date:</span>
+                            <span class="value">{{ quotation.date | format_date }}</span>
+                        </div>
+                        <div class="doc-meta-row">
+                            <span class="label">Valide jusqu'au:</span>
+                            <span class="value">{{ quotation.expiry_date | format_date }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tableau des produits -->
+            <table class="items-table">
                 <thead>
                     <tr>
-                        <th class="col-desc">Description</th>
-                        <th class="col-qty">Qté</th>
-                        <th class="col-price">Prix Unit.</th>
-                        <th class="col-total">Montant</th>
+                        <th style="width: 50%">Description du Produit</th>
+                        <th class="col-price" style="width: 15%">Prix</th>
+                        <th class="col-qty" style="width: 15%">Qté</th>
+                        <th class="col-total" style="width: 20%">Total</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -248,70 +610,98 @@
                     {% set pname = item.product_name | default('', true) %}
                     {% if not pname.startswith('[SECTION]') %}
                     <tr>
-                        <td class="col-desc">
+                        <td>
                             <div class="item-name">{{ pname }}</div>
+                            {% if item.description %}
+                                <div class="item-desc">{{ item.description }}</div>
+                            {% endif %}
                         </td>
-                        <td class="col-qty">{{ item.quantity | format_number }}</td>
                         <td class="col-price">{{ (item.price or 0) | format_cfa }}</td>
+                        <td class="col-qty">{{ item.quantity | format_number }}</td>
                         <td class="col-total">{{ (item.total or 0) | format_cfa }}</td>
                     </tr>
                     {% endif %}
                     {% endfor %}
                 </tbody>
             </table>
-        </div>
 
-        <!-- SUMMARY -->
-        <div class="summary-block">
-            <div class="totals-table">
-                <div class="total-row">
-                    <span>Sous-total</span>
-                    <span>{{ (quotation.subtotal or 0) | format_cfa }}</span>
+            <!-- Section inférieure -->
+            <div class="bottom-section">
+                <!-- Validité -->
+                <div class="validity-section">
+                    <h4>Informations Devis</h4>
+                    <div class="validity-details">
+                        <span class="label">Date d'émission:</span>
+                        <span class="value">{{ quotation.date | format_date }}</span>
+                        <span class="label">Valide jusqu'au:</span>
+                        <span class="value">{{ quotation.expiry_date | format_date }}</span>
+                        <span class="label">État:</span>
+                        <span class="value">{{ quotation.status or 'En attente' }}</span>
+                    </div>
+                    <div class="validity-badge">⚠️ Devis valable 30 jours</div>
                 </div>
-                {% if (quotation.tax_rate or 0) > 0 %}
-                <div class="total-row">
-                    <span>TVA ({{ (quotation.tax_rate or 0) | int }}%)</span>
-                    <span>{{ (quotation.tax_amount or 0) | format_cfa }}</span>
-                </div>
-                {% endif %}
-                <div class="total-row grand">
-                    <span>TOTAL DEVIS</span>
-                    <span>{{ (quotation.total or 0) | format_cfa }}</span>
-                </div>
-            </div>
-        </div>
 
-        <!-- SIGNATURE -->
-        <div class="signature-area">
-            <div class="sig-box">
-                <div class="sig-label">Signature & Cachet Client</div>
-                {% if signature_data_url %}
-                    <img src="{{ signature_data_url }}" class="sig-img">
-                {% endif %}
-                <div class="sig-line">Lu et approuvé</div>
+                <!-- Totaux -->
+                <div class="totals-section">
+                    <div class="totals-table">
+                        <div class="totals-row">
+                            <span class="label">Sous-total:</span>
+                            <span class="value">{{ (quotation.subtotal or 0) | format_cfa }}</span>
+                        </div>
+                        {% if (quotation.tax_rate or 0) > 0 %}
+                        <div class="totals-row">
+                            <span class="label">TVA ({{ (quotation.tax_rate or 0) | int }}%):</span>
+                            <span class="value">{{ (quotation.tax_amount or 0) | format_cfa }}</span>
+                        </div>
+                        {% endif %}
+                        <div class="totals-row grand">
+                            <span class="label">Total:</span>
+                            <span class="value">{{ (quotation.total or 0) | format_cfa }}</span>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
 
-        <!-- FOOTER -->
-        <div class="footer">
-            <div class="footer-col">
-                <h4>Localisation</h4>
-                <p>{{ settings.address or 'Dakar, Sénégal' }}</p>
-                <p>{{ settings.city or '' }}</p>
+            <!-- Conditions -->
+            <div class="conditions-section">
+                <h4>⚠️ Conditions du Devis:</h4>
+                <p>Ce devis est valable jusqu'à la date indiquée ci-dessus. Les prix peuvent être modifiés après expiration. Paiement selon les modalités convenues. Délai de livraison à confirmer à la commande.</p>
             </div>
-            <div class="footer-col" style="text-align: center;">
-                <h4>Contact Direct</h4>
-                <p>Tél: {{ settings.phone or '+221 77 000 00 00' }}</p>
-                <p>Email: {{ settings.email or 'contact@techzone.sn' }}</p>
+
+            <!-- Signatures -->
+            <div class="signatures-section">
+                <div class="signature-box">
+                    <div class="signature-line">
+                        {% if signature_data_url %}
+                            <img src="{{ signature_data_url }}" class="signature-img">
+                        {% endif %}
+                    </div>
+                    <div class="signature-label">Signature {{ settings.company_name or 'TECHZONE' }}</div>
+                </div>
+                <div class="signature-box">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Bon pour accord - Signature Client</div>
+                </div>
             </div>
-            <div class="footer-col" style="text-align: right;">
-                <h4>Services Web</h4>
-                <p>Site: {{ settings.website or 'www.techzone.sn' }}</p>
-                <p>Instagram: @techzone_sn</p>
-            </div>
-            <div class="footer-bottom">
-                {{ settings.footer_text or 'TECHZONE - Solutions Technologiques & Accessoires' }}
-            </div>
+
+            <!-- Footer -->
+            <footer class="footer">
+                <div class="footer-contact">
+                    <div class="contact-item">
+                        <div class="contact-icon">📞</div>
+                        <span>{{ settings.phone or '+221 77 000 00 00' }}</span>
+                    </div>
+                    <div class="contact-item">
+                        <div class="contact-icon">✉️</div>
+                        <span>{{ settings.email or 'contact@techzone.sn' }}</span>
+                    </div>
+                    <div class="contact-item">
+                        <div class="contact-icon">📍</div>
+                        <span>{{ settings.address or 'Dakar, Sénégal' }}</span>
+                    </div>
+                </div>
+                <div class="footer-thanks">Merci pour votre confiance</div>
+            </footer>
         </div>
     </div>
 </body>

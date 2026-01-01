@@ -206,18 +206,52 @@ def _format_cfa(value) -> str:
 templates.env.filters["format_cfa"] = _format_cfa
 
 def _format_date_no_time(value) -> str:
+    """Formate une date au format français: jour mois année (ex: 31 décembre 2025)"""
+    # Mapping des mois en français
+    mois_fr = {
+        1: "janvier", 2: "février", 3: "mars", 4: "avril",
+        5: "mai", 6: "juin", 7: "juillet", 8: "août",
+        9: "septembre", 10: "octobre", 11: "novembre", 12: "décembre"
+    }
+    
     try:
         if value is None:
             return ""
         if isinstance(value, (datetime, date)):
-            # Always YYYY-MM-DD
-            return value.strftime("%Y-%m-%d")
+            # Format français: jour mois année (ex: 31 décembre 2025)
+            jour = value.day
+            mois_nom = mois_fr.get(value.month, "")
+            annee = value.year
+            return f"{jour} {mois_nom} {annee}"
+        
         s = str(value)
-        if "T" in s:
-            return s.split("T")[0]
-        if " " in s:
-            return s.split(" ")[0]
-        return s
+        # Si c'est déjà une date formatée, essayer de la convertir
+        try:
+            dt = None
+            # Tenter de parser différents formats et reformater
+            if "T" in s:
+                dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            elif "-" in s and len(s.split("-")) == 3:
+                # Format YYYY-MM-DD ou DD/MM/YYYY
+                date_part = s.split(" ")[0]
+                if "/" in date_part:
+                    # Format DD/MM/YYYY
+                    try:
+                        dt = datetime.strptime(date_part, "%d/%m/%Y")
+                    except:
+                        pass
+                if dt is None:
+                    # Format YYYY-MM-DD
+                    dt = datetime.strptime(date_part, "%Y-%m-%d")
+            
+            if dt:
+                jour = dt.day
+                mois_nom = mois_fr.get(dt.month, "")
+                annee = dt.year
+                return f"{jour} {mois_nom} {annee}"
+        except Exception:
+            pass
+        return s.split(" ")[0] if " " in s else s
     except Exception:
         try:
             return str(value).split(" ")[0]

@@ -839,7 +839,7 @@ async def send_quotation_email(
             raise HTTPException(status_code=404, detail="Devis non trouvé")
         
         # Construire l'URL HTML du devis (même URL que WhatsApp)
-        app_public_url = os.getenv("APP_PUBLIC_URL", "http://nitek_app:8000")
+        app_public_url = os.getenv("APP_PUBLIC_URL", "http://techzone_app:8000")
         pdf_url = f"{app_public_url}/quotations/print/{data.quotation_id}"
         
         # Appeler le webhook n8n pour envoyer par email
@@ -980,7 +980,7 @@ async def send_quotation_whatsapp(
             raise HTTPException(status_code=404, detail="Devis non trouvé")
         
         # Construire l'URL du PDF du devis (accessible depuis n8n via réseau Docker)
-        app_public_url = os.getenv("APP_PUBLIC_URL", "http://nitek_app:8000")
+        app_public_url = os.getenv("APP_PUBLIC_URL", "http://techzone_app:8000")
         pdf_url = f"{app_public_url}/quotations/print/{data.quotation_id}"
         
         # Appeler le webhook n8n pour envoyer via WhatsApp

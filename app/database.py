@@ -471,6 +471,7 @@ class Invoice(Base):
     
     invoice_id = Column(Integer, primary_key=True, index=True)
     invoice_number = Column(String(50), unique=True, nullable=False)
+    invoice_type = Column(String(20), default="normal")  # normal, exchange
     client_id = Column(Integer, ForeignKey("clients.client_id"))
     quotation_id = Column(Integer, ForeignKey("quotations.quotation_id"))
     date = Column(DateTime, nullable=False)
@@ -500,6 +501,7 @@ class Invoice(Base):
     client = relationship("Client")
     quotation = relationship("Quotation")
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
+    exchange_items = relationship("InvoiceExchangeItem", back_populates="invoice", cascade="all, delete-orphan")
     payments = relationship("InvoicePayment", back_populates="invoice", cascade="all, delete-orphan")
     creator = relationship("User", foreign_keys=[created_by])
 
@@ -520,6 +522,25 @@ class InvoiceItem(Base):
     # Relations
     invoice = relationship("Invoice", back_populates="items")
     product = relationship("Product")
+
+class InvoiceExchangeItem(Base):
+    __tablename__ = "invoice_exchange_items"
+    
+    exchange_item_id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.invoice_id", ondelete="CASCADE"))
+    # Produit échangé (sortant - celui que le client donne)
+    product_id = Column(Integer, ForeignKey("products.product_id"), nullable=True)
+    product_name = Column(String(100), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    variant_id = Column(Integer, ForeignKey("product_variants.variant_id"), nullable=True)
+    variant_imei = Column(String(255), nullable=True)
+    # Notes pour le produit échangé
+    notes = Column(Text, nullable=True)
+    
+    # Relations
+    invoice = relationship("Invoice", back_populates="exchange_items")
+    product = relationship("Product")
+    variant = relationship("ProductVariant")
 
 class InvoicePayment(Base):
     __tablename__ = "invoice_payments"

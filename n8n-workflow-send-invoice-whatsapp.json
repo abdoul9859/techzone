@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extraire et formater les données du webhook\nconst data = $input.first().json.body || $input.first().json;\n\nconsole.log('Données reçues:', JSON.stringify(data));\n\n// Formater le total\nconst total = Number(data.total || 0);\nconst totalFormatted = total.toLocaleString('fr-FR');\n\n// URL de la facture HTML (accessible via réseau Docker)\nconst htmlUrl = `http://nitek_app:8000/invoices/print/${data.invoice_id}`;\n\n// Construire le message caption\nconst caption = `Bonjour ${data.client_name || 'Client'},\n\n📄 *FACTURE N° ${data.invoice_number}*\n💰 Montant total: ${totalFormatted} F CFA\n\nMerci pour votre confiance.\nPour toute question, n'hésitez pas à nous contacter.\n\nCordialement,\nTECHZONE`;\n\nreturn [{\n  json: {\n    phone: data.phone,\n    htmlUrl: htmlUrl,\n    filename: `Facture-${data.invoice_number}.pdf`,\n    caption: caption\n  }\n}];"
+        "jsCode": "// Importer les fonctions WhatsApp\nconst whatsapp = require('/data/n8n/whatsapp.js');\n\n// Extraire les données du webhook\nconst data = $input.first().json.body || $input.first().json;\n\nconsole.log('Données reçues:', JSON.stringify(data));\n\n// Construire l'URL de la facture HTML (accessible via réseau Docker)\nconst htmlUrl = whatsapp.buildPrintUrl(`/invoices/print/${data.invoice_id}`);\n\n// Construire le message caption\nconst caption = whatsapp.buildInvoiceMessage({\n  invoice_number: data.invoice_number,\n  client_name: data.client_name,\n  total: data.total\n});\n\nreturn [{\n  json: {\n    phone: whatsapp.normalizePhone(data.phone),\n    htmlUrl: htmlUrl,\n    filename: `Facture-${data.invoice_number}.pdf`,\n    caption: caption\n  }\n}];"
       },
       "id": "extract-data-node",
       "name": "Extract Data",
@@ -28,7 +28,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://72.62.22.52:3001/api/sendPdf",
+        "url": "={{ $env.WHATSAPP_SERVICE_URL || 'http://whatsapp-service:3001' }}/api/sendPdf",
         "authentication": "none",
         "sendBody": true,
         "contentType": "json",

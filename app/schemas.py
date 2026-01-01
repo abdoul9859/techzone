@@ -366,6 +366,12 @@ class InvoiceItemCreate(BaseModel):
     variant_id: Optional[int] = None
     variant_imei: Optional[str] = None
     external_price: Optional[Decimal] = None  # Prix d'achat externe (optionnel)
+    # Pour les produits entrants dans un échange (nouveau produit à créer)
+    create_as_new_product: Optional[bool] = False
+    new_product_category: Optional[str] = None
+    new_product_condition: Optional[str] = None
+    new_variant_imei: Optional[str] = None
+    new_variant_barcode: Optional[str] = None
 
 class InvoiceItemResponse(BaseModel):
     item_id: int
@@ -380,8 +386,29 @@ class InvoiceItemResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class InvoiceExchangeItemCreate(BaseModel):
+    product_id: Optional[int] = None
+    product_name: str
+    quantity: int
+    variant_id: Optional[int] = None
+    variant_imei: Optional[str] = None
+    notes: Optional[str] = None
+
+class InvoiceExchangeItemResponse(BaseModel):
+    exchange_item_id: int
+    product_id: Optional[int] = None
+    product_name: str
+    quantity: int
+    variant_id: Optional[int] = None
+    variant_imei: Optional[str] = None
+    notes: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
 class InvoiceCreate(BaseModel):
     invoice_number: str
+    invoice_type: str = "normal"  # normal, exchange
     client_id: int
     quotation_id: Optional[int] = None
     date: datetime
@@ -402,10 +429,12 @@ class InvoiceCreate(BaseModel):
     warranty_start_date: Optional[date] = None
     warranty_end_date: Optional[date] = None
     items: List[InvoiceItemCreate]
+    exchange_items: Optional[List[InvoiceExchangeItemCreate]] = []  # Produits échangés (sortants)
 
 class InvoiceResponse(BaseModel):
     invoice_id: int
     invoice_number: str
+    invoice_type: str = "normal"
     client_id: int
     client_name: str  # Ajouter le nom du client
     quotation_id: Optional[int]
@@ -431,6 +460,7 @@ class InvoiceResponse(BaseModel):
     warranty_end_date: Optional[date] = None
     created_at: datetime
     items: List[InvoiceItemResponse] = []
+    exchange_items: List[InvoiceExchangeItemResponse] = []
     
     class Config:
         from_attributes = True

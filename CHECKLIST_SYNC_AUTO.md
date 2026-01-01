@@ -4,14 +4,13 @@
 
 ### 1. Application en cours d'exécution
 ```bash
-cd /opt/Geek Technologie
+cd /opt/TECHZONE
 docker compose ps
 ```
 
 **Résultat attendu** :
 ```
-✅ Geek Technologie_app   Up (healthy)
-✅ Geek Technologie_db    Up (healthy)
+✅ techzone_app   Up (healthy)
 ```
 
 ### 2. Configuration présente
@@ -21,7 +20,7 @@ docker compose exec app env | grep GOOGLE_SHEETS
 
 **Résultat attendu** :
 ```
-✅ GOOGLE_SHEETS_CREDENTIALS_PATH=/opt/Geek Technologie/credentials/...
+✅ GOOGLE_SHEETS_CREDENTIALS_PATH=/opt/TECHZONE/credentials/...
 ✅ GOOGLE_SHEETS_SPREADSHEET_ID=1VHMujdZw...
 ✅ GOOGLE_SHEETS_WORKSHEET_NAME=Les produits
 ✅ GOOGLE_SHEETS_AUTO_SYNC=true
@@ -30,7 +29,7 @@ docker compose exec app env | grep GOOGLE_SHEETS
 
 ### 3. Fichier credentials présent
 ```bash
-docker compose exec app ls -la /opt/Geek Technologie/credentials/
+docker compose exec app ls -la /opt/TECHZONE/credentials/
 ```
 
 **Résultat attendu** :
@@ -55,7 +54,7 @@ curl -s http://localhost:8000/api
 
 **Résultat attendu** :
 ```json
-✅ {"message":"API Geek Technologie","status":"running",...}
+✅ {"message":"API TECHZONE","status":"running",...}
 ```
 
 ## 🎯 Test de fonctionnement
