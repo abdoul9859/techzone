@@ -143,6 +143,37 @@ async def get_supplier_invoice(
     # Enrichir avec les données du fournisseur
     supplier = db.query(Supplier).filter(Supplier.supplier_id == invoice.supplier_id).first()
     
+    # Parser les articles JSON si disponibles, sinon essayer de parser la description
+    import json
+    import re
+    items_list = None
+    
+    if invoice.items_json:
+        try:
+            items_list = json.loads(invoice.items_json)
+        except:
+            pass
+    elif invoice.description and invoice.description != "Facture fournisseur":
+        # Fallback pour les anciennes factures: parser la description
+        # Format attendu: "Description (x{qty} @ {price} FCFA)"
+        items_list = []
+        lines = invoice.description.split('\n')
+        pattern = re.compile(r'(.*) \(x(\d+) @ (\d+(?:\.\d+)?) FCFA\)')
+        
+        for line in lines:
+            if line.startswith("Notes:"): # Ignorer les notes ajoutées à la fin
+                break
+                
+            match = pattern.match(line.strip())
+            if match:
+                desc, qty, price = match.groups()
+                items_list.append({
+                    "description": desc.strip(),
+                    "quantity": int(qty),
+                    "unit_price": float(price),
+                    "total": int(qty) * float(price)
+                })
+    
     return SupplierInvoiceResponse(
         invoice_id=invoice.invoice_id,
         supplier_id=invoice.supplier_id,
@@ -157,6 +188,7 @@ async def get_supplier_invoice(
         status=invoice.status,
         payment_method=invoice.payment_method,
         notes=invoice.notes,
+        items=items_list,
         pdf_path=invoice.pdf_path,
         pdf_filename=invoice.pdf_filename,
         created_at=invoice.created_at
@@ -165,45 +197,91 @@ async def get_supplier_invoice(
 @router.post("/", response_model=SupplierInvoiceResponse)
 async def create_supplier_invoice(
     supplier_id: int = Form(...),
-    pdf_file: UploadFile = File(...),
+    invoice_number: str = Form(...),
+    invoice_date: str = Form(...),
+    total_amount: float = Form(...),
+    due_date: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    items: Optional[str] = Form(None),
+    invoice_image: Optional[UploadFile] = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Créer une nouvelle facture fournisseur - Version simplifiée avec seulement PDF + fournisseur"""
+    """Créer une nouvelle facture fournisseur avec saisie manuelle"""
     try:
         # Vérifier que le fournisseur existe
         supplier = db.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
         if not supplier:
             raise HTTPException(status_code=404, detail="Fournisseur non trouvé")
         
-        # Vérifier le type de fichier PDF
-        if pdf_file.content_type != "application/pdf":
-            raise HTTPException(status_code=400, detail="Seuls les fichiers PDF sont acceptés")
+        # Traiter la photo de la facture si fournie
+        image_path = None
+        image_filename = None
+        if invoice_image and invoice_image.filename:
+            # Créer le dossier de destination s'il n'existe pas
+            upload_dir = Path("static/uploads/supplier_invoices")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Générer un nom de fichier unique
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            file_ext = Path(invoice_image.filename).suffix
+            unique_filename = f"invoice_{supplier_id}_{timestamp}{file_ext}"
+            file_path = upload_dir / unique_filename
+            
+            # Sauvegarder le fichier
+            content = await invoice_image.read()
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+            
+            image_path = f"/static/uploads/supplier_invoices/{unique_filename}"
+            image_filename = invoice_image.filename
         
-        # Sauvegarder le fichier PDF
-        pdf_path, pdf_filename = _save_pdf_file(pdf_file)
+        # Parser les articles si fournis
+        import json
+        description_parts = []
+        items_json_str = None
+        if items:
+            try:
+                items_list = json.loads(items)
+                items_json_str = items  # Stocker le JSON brut
+                for item in items_list:
+                    desc = item.get('description', '')
+                    qty = item.get('quantity', 0)
+                    price = item.get('unit_price', 0)
+                    description_parts.append(f"{desc} (x{qty} @ {price} FCFA)")
+            except:
+                pass
         
-        # Générer un numéro de facture automatique basé sur le timestamp
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        auto_invoice_number = f"FAC-{timestamp}"
+        # Construire la description
+        description = "\n".join(description_parts) if description_parts else "Facture fournisseur"
+        if notes:
+            description += f"\n\nNotes: {notes}"
         
-        # Créer la facture avec des valeurs par défaut pour les champs obligatoires
-        current_time = datetime.now()
+        # Parser les dates
+        invoice_date_obj = datetime.strptime(invoice_date, "%Y-%m-%d")
+        due_date_obj = None
+        if due_date:
+            try:
+                due_date_obj = datetime.strptime(due_date, "%Y-%m-%d")
+            except:
+                pass
+        
+        # Créer la facture
         invoice = SupplierInvoice(
             supplier_id=supplier_id,
-            invoice_number=auto_invoice_number,
-            invoice_date=current_time,  # Date actuelle par défaut
-            due_date=None,
-            description="Facture PDF - Détails à compléter",  # Description par défaut
-            amount=0.0,  # Montant par défaut à 0
+            invoice_number=invoice_number,
+            invoice_date=invoice_date_obj,
+            due_date=due_date_obj,
+            description=description,
+            amount=float(total_amount),
             paid_amount=0.0,
-            remaining_amount=0.0,
+            remaining_amount=float(total_amount),
             status="pending",
             payment_method=None,
-            notes=None,
-            pdf_path=pdf_path,
-            pdf_filename=pdf_filename
+            notes=notes,
+            items_json=items_json_str,
+            pdf_path=image_path,  # Utiliser le même champ pour l'image
+            pdf_filename=image_filename
         )
         
         db.add(invoice)
@@ -224,7 +302,14 @@ async def create_supplier_invoice(
 @router.put("/{invoice_id}", response_model=SupplierInvoiceResponse)
 async def update_supplier_invoice(
     invoice_id: int,
-    invoice_data: SupplierInvoiceUpdate,
+    supplier_id: int = Form(...),
+    invoice_number: str = Form(...),
+    invoice_date: str = Form(...),
+    total_amount: float = Form(...),
+    due_date: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    items: Optional[str] = Form(None),
+    invoice_image: Optional[UploadFile] = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -234,14 +319,73 @@ async def update_supplier_invoice(
         if not invoice:
             raise HTTPException(status_code=404, detail="Facture non trouvée")
         
-        # Mettre à jour les champs modifiables
-        for field, value in invoice_data.dict(exclude_unset=True).items():
-            if hasattr(invoice, field):
-                setattr(invoice, field, value)
+        # Vérifier que le fournisseur existe
+        supplier = db.query(Supplier).filter(Supplier.supplier_id == supplier_id).first()
+        if not supplier:
+            raise HTTPException(status_code=404, detail="Fournisseur non trouvé")
         
-        # Recalculer le remaining_amount si nécessaire
-        if invoice_data.amount is not None:
-            invoice.remaining_amount = invoice.amount - invoice.paid_amount
+        # Traiter la photo de la facture si fournie (ne remplacer que si un nouveau fichier est fourni)
+        if invoice_image and invoice_image.filename:
+            # Créer le dossier de destination s'il n'existe pas
+            upload_dir = Path("static/uploads/supplier_invoices")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Générer un nom de fichier unique
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            file_ext = Path(invoice_image.filename).suffix
+            unique_filename = f"invoice_{supplier_id}_{timestamp}{file_ext}"
+            file_path = upload_dir / unique_filename
+            
+            # Sauvegarder le fichier
+            content = await invoice_image.read()
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+            
+            invoice.pdf_path = f"/static/uploads/supplier_invoices/{unique_filename}"
+            invoice.pdf_filename = invoice_image.filename
+        
+        # Parser les articles si fournis
+        import json
+        description_parts = []
+        items_json_str = None
+        if items:
+            try:
+                items_list = json.loads(items)
+                items_json_str = items  # Stocker le JSON brut
+                for item in items_list:
+                    desc = item.get('description', '')
+                    qty = item.get('quantity', 0)
+                    price = item.get('unit_price', 0)
+                    description_parts.append(f"{desc} (x{qty} @ {price} FCFA)")
+            except:
+                pass
+        
+        # Construire la description
+        description = "\n".join(description_parts) if description_parts else "Facture fournisseur"
+        if notes:
+            description += f"\n\nNotes: {notes}"
+        
+        # Parser les dates
+        invoice_date_obj = datetime.strptime(invoice_date, "%Y-%m-%d")
+        due_date_obj = None
+        if due_date:
+            try:
+                due_date_obj = datetime.strptime(due_date, "%Y-%m-%d")
+            except:
+                pass
+        
+        # Mettre à jour les champs
+        invoice.supplier_id = supplier_id
+        invoice.invoice_number = invoice_number
+        invoice.invoice_date = invoice_date_obj
+        invoice.due_date = due_date_obj
+        invoice.description = description
+        invoice.amount = float(total_amount)
+        invoice.notes = notes
+        invoice.items_json = items_json_str
+        
+        # Recalculer le remaining_amount
+        invoice.remaining_amount = invoice.amount - invoice.paid_amount
         
         # Mettre à jour le statut automatiquement
         if invoice.remaining_amount <= 0:

@@ -361,7 +361,7 @@
                         <div class="dropdown-menu shadow-lg border-0 py-2" id="navProductDropdown" style="width:100%; max-height: 400px; overflow-x: hidden; overflow-y: auto; z-index: 9999; border-radius: 12px; display: none;"></div>
                     </div>
                 </form>
-                
+
                 <ul class="navbar-nav">
                     <li class="nav-item">
                         <a class="nav-link" href="/settings" title="Paramètres">
@@ -549,8 +549,8 @@
           } catch(e) {
             console.error('Erreur lors de la recherche de clients:', e);
             if (clientMenu) {
-              clientMenu.innerHTML = '<div class="dropdown-item text-danger small px-3 py-2">Erreur chargement</div>';
-              showMenu(clientMenu);
+            clientMenu.innerHTML = '<div class="dropdown-item text-danger small px-3 py-2">Erreur chargement</div>';
+            showMenu(clientMenu);
             }
           }
         }, 250);
@@ -570,8 +570,8 @@
           } catch(e) {
             console.error('Erreur lors de la recherche de produits:', e);
             if (productMenu) {
-              productMenu.innerHTML = '<div class="dropdown-item text-danger small px-3 py-2">Erreur chargement</div>';
-              showMenu(productMenu);
+            productMenu.innerHTML = '<div class="dropdown-item text-danger small px-3 py-2">Erreur chargement</div>';
+            showMenu(productMenu);
             }
           }
         }, 250);

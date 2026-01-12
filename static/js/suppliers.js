@@ -196,7 +196,9 @@ function createSupplierCard(supplier) {
                     <div class="flex-grow-1">
                         <h5 class="card-title mb-1 text-primary">
                             <i class="bi bi-building me-2"></i>
-                            ${escapeHtml(supplier.name)}
+                            <a href="/supplier/${supplier.id}" class="text-decoration-none text-primary">
+                                ${escapeHtml(supplier.name)}
+                            </a>
                         </h5>
                         <small class="text-muted">ID: ${supplier.id}</small>
                     </div>
@@ -205,6 +207,12 @@ function createSupplierCard(supplier) {
                             <i class="bi bi-three-dots"></i>
                         </button>
                         <ul class="dropdown-menu">
+                            <li>
+                                <a class="dropdown-item" href="/supplier/${supplier.id}">
+                                    <i class="bi bi-eye me-2"></i>
+                                    Voir détails
+                                </a>
+                            </li>
                             <li>
                                 <button class="dropdown-item" onclick="editSupplier(${supplier.id})">
                                     <i class="bi bi-pencil me-2"></i>

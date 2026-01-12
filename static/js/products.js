@@ -12,7 +12,8 @@ let currentFilters = {
     max_price: null,
     has_barcode: null, // true/false/null
     in_stock: null,    // true/null (UI checkbox)
-    has_variants: null // true/null (UI checkbox)
+    has_variants: null, // true/null (UI checkbox)
+    source: null       // purchase/exchange/return/other/null
 };
 let variantCounter = 0;
 // Map nomCategorie -> { requires_variants: boolean }
@@ -211,6 +212,14 @@ function attachFilterListeners() {
             loadProducts();
         });
     }
+    const sourceFilter = document.getElementById('sourceFilter');
+    if (sourceFilter) {
+        sourceFilter.addEventListener('change', function() {
+            currentFilters.source = this.value || null;
+            currentPage = 1;
+            loadProducts();
+        });
+    }
     const brandInput = document.getElementById('brandFilter');
     const modelInput = document.getElementById('modelFilter');
     const minPriceInput = document.getElementById('minPriceFilter');
@@ -386,7 +395,7 @@ document.addEventListener('DOMContentLoaded', function() {
 function resetFilters() {
     // Inputs/selects
     const idsToClear = [
-        'searchInput', 'categoryFilter', 'conditionFilter', 'brandFilter', 'modelFilter', 'minPriceFilter', 'maxPriceFilter', 'hasBarcodeFilter'
+        'searchInput', 'categoryFilter', 'conditionFilter', 'sourceFilter', 'brandFilter', 'modelFilter', 'minPriceFilter', 'maxPriceFilter', 'hasBarcodeFilter'
     ];
     idsToClear.forEach(id => {
         const el = document.getElementById(id);
@@ -415,6 +424,7 @@ function resetFilters() {
         currentFilters.has_barcode = null;
         currentFilters.in_stock = null;
         currentFilters.has_variants = null;
+        currentFilters.source = null;
         currentFilters.include_archived = false;
     }
     const includeArchivedChk = document.getElementById('includeArchivedFilter');
@@ -613,6 +623,7 @@ function displayProducts(products) {
                 <td>
                     <div>
                         <strong>${escapeHtml(product.name)}</strong> ${condBadge}
+                        ${product.source === 'exchange' ? '<span class="badge bg-warning text-dark ms-1"><i class="bi bi-arrow-left-right"></i> Échange</span>' : ''}
                         ${product.is_archived ? '<span class="badge bg-secondary ms-1"><i class="bi bi-archive"></i> Archivé</span>' : ''}
                         ${product.brand ? `<br><small class="text-muted">${escapeHtml(product.brand)} ${escapeHtml(product.model || '')}</small>` : ''}
                     </div>
@@ -1227,6 +1238,8 @@ function createVariantForm(variant = null, index, isSold = false) {
         imei_serial: '',
         barcode: '',
         condition: '',
+        price: null,
+        quantity: null,
         attributes: []
     };
     
@@ -1266,12 +1279,27 @@ function createVariantForm(variant = null, index, isSold = false) {
                     </div>
                 </div>
                 <div class="row mt-2">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label">État de la variante</label>
                         <select class="form-select" name="variant_${index}_condition" data-variant-condition="1" ${disabledAttr}>
                             <option value="">(Hériter du produit)</option>
                             ${allowedConditions.map(c => `<option value="${c}" ${variantData.condition === c ? 'selected' : ''}>${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('')}
                         </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Prix variante (optionnel)</label>
+                        <input type="number" class="form-control"
+                               name="variant_${index}_price"
+                               value="${(variantData.price ?? '')}"
+                               min="0" step="1" ${disabledAttr}>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Quantité (optionnel)</label>
+                        <input type="number" class="form-control"
+                               name="variant_${index}_quantity"
+                               value="${(variantData.quantity ?? '')}"
+                               min="0" step="1" ${disabledAttr}>
+                        <div class="form-text">Pour IMEI similaires</div>
                     </div>
                 </div>
                 
@@ -1309,12 +1337,16 @@ function serializeVariants() {
         const imeiInput = card.querySelector(`input[name="variant_${index}_imei"]`);
         const barcodeInput = card.querySelector(`input[name="variant_${index}_barcode"]`);
         const condSelect = card.querySelector(`select[name="variant_${index}_condition"]`);
+        const priceInput = card.querySelector(`input[name="variant_${index}_price"]`);
+        const quantityInput = card.querySelector(`input[name="variant_${index}_quantity"]`);
         
         if (imeiInput && imeiInput.value.trim()) {
             const variant = {
                 imei_serial: imeiInput.value.trim(),
                 barcode: barcodeInput && barcodeInput.value.trim() ? barcodeInput.value.trim() : null,
                 condition: condSelect && condSelect.value ? condSelect.value : null,
+                price: (priceInput && String(priceInput.value || '').trim() !== '') ? (parseInt(priceInput.value, 10) || 0) : null,
+                quantity: (quantityInput && String(quantityInput.value || '').trim() !== '') ? (parseInt(quantityInput.value, 10) || 0) : null,
                 attributes: []
             };
             

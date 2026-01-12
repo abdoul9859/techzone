@@ -47,7 +47,11 @@ function computeAvailableStock(product) {
     try {
         const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
         if (variants.length > 0) {
-            return variants.filter(v => !v.is_sold).length;
+            return variants.reduce((acc, v) => {
+                if (v && v.is_sold) return acc;
+                const q = Number(v && v.quantity);
+                return acc + (Number.isFinite(q) ? q : 1);
+            }, 0);
         }
         return Number(product.quantity || 0);
     } catch (e) {
@@ -296,7 +300,13 @@ function setupEventListeners() {
                 }
                 const variants = Array.isArray(p.variants) ? p.variants : [];
                 const hasVariants = variants.length > 0;
-                const available = hasVariants ? variants.filter(v => !v.is_sold).length : Number(p.quantity || 0);
+                const available = hasVariants
+                    ? variants.reduce((acc, v) => {
+                        if (v && v.is_sold) return acc;
+                        const q = Number(v && v.quantity);
+                        return acc + (Number.isFinite(q) ? q : 1);
+                    }, 0)
+                    : Number(p.quantity || 0);
                 const stockBadge = `<span class="badge ${available>0?'bg-success':'bg-danger'} ms-2">${available>0?('Stock: '+available):'Rupture'}</span>`;
                 const sub = [p.category, p.brand, p.model].filter(Boolean).join(' • ');
                 const isOutOfStock = available === 0;
@@ -332,8 +342,99 @@ function setupEventListeners() {
         }
     }, 250));
 
-    // Sélection d'une suggestion (document-level) - utiliser mousedown pour capturer avant blur
+    // Recherche produit pour les produits échangés (délégation document-level)
+    document.addEventListener('input', debounce(async (e) => {
+        const target = e.target;
+        if (!(target && target.classList && target.classList.contains('exchange-product-search-input'))) return;
+        const query = String(target.value || '').trim();
+        const exchangeItemId = target.getAttribute('data-exchange-item-id');
+        if (!exchangeItemId) return;
+        const container = target.closest('.position-relative');
+        if (!container) return;
+        const suggestBox = container.querySelector('.exchange-product-suggestions');
+        if (!suggestBox) return;
+        if (query.length < 2) { suggestBox.classList.add('d-none'); suggestBox.innerHTML = ''; return; }
+        try {
+            const res = await axios.get('/api/products/', { params: { search: query, limit: 20 } });
+            let list = res.data?.items || res.data || [];
+            suggestBox.innerHTML = (list.length ? list : [{ __empty: true }]).map(p => {
+                if (p.__empty) {
+                    return '<div class="list-group-item text-muted small">Aucun produit</div>';
+                }
+                const variants = Array.isArray(p.variants) ? p.variants : [];
+                const hasVariants = variants.length > 0;
+                const available = hasVariants
+                    ? variants.reduce((acc, v) => {
+                        if (v && v.is_sold) return acc;
+                        const q = Number(v && v.quantity);
+                        return acc + (Number.isFinite(q) ? q : 1);
+                    }, 0)
+                    : Number(p.quantity || 0);
+                const stockBadge = `<span class="badge ${available>0?'bg-success':'bg-secondary'} ms-2">Stock: ${available}</span>`;
+                const sub = [p.category, p.brand, p.model].filter(Boolean).join(' • ');
+                return `
+                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" data-exchange-product-id="${p.product_id}">
+                    <div class="d-flex align-items-center gap-2 me-2">
+                        ${(() => {
+                            if (!p.image_path) return '';
+                            const imgPath = String(p.image_path).trim();
+                            if (!imgPath) return '';
+                            let imageUrl = imgPath.startsWith('/') ? imgPath : '/' + imgPath;
+                            if (!imageUrl.startsWith('/static')) {
+                                imageUrl = '/static/' + imgPath.replace(/^\/+/, '');
+                            }
+                            return `<img src="${imageUrl}" alt="${escapeHtml(p.name || '')}"
+                                 style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;"
+                                 onerror="this.style.display='none';">`;
+                        })()}
+                        <div>
+                            <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name || '')} ${stockBadge}</div>
+                            <div class="text-muted small">${[p.barcode ? 'Code: '+escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
+                        </div>
+                    </div>
+                    <div class="text-nowrap ms-3">
+                        <div class="fw-semibold">${formatCurrency(p.price)}</div>
+                    </div>
+                </div>`;
+            }).join('');
+            suggestBox.classList.remove('d-none');
+        } catch (err) {
+            suggestBox.classList.add('d-none'); suggestBox.innerHTML = '';
+        }
+    }, 250));
+
+    // Sélection d'un produit échangé depuis les suggestions
     document.addEventListener('mousedown', (e) => {
+        const exchangeItem = e.target.closest('.list-group-item[data-exchange-product-id]');
+        if (exchangeItem) {
+            e.preventDefault();
+            e.stopPropagation();
+            const productId = exchangeItem.getAttribute('data-exchange-product-id');
+            if (!productId) return;
+            const suggestBox = exchangeItem.closest('.exchange-product-suggestions');
+            if (!suggestBox) return;
+            const container = suggestBox.closest('.position-relative');
+            if (!container) return;
+            const input = container.querySelector('.exchange-product-search-input');
+            if (!input) return;
+            const exchangeItemId = input.getAttribute('data-exchange-item-id');
+            if (!exchangeItemId) return;
+            
+            // Trouver le produit et mettre à jour l'item d'échange
+            const product = products.find(p => String(p.product_id) === String(productId));
+            if (product) {
+                const item = exchangeItems.find(i => i.id === Number(exchangeItemId));
+                if (item) {
+                    item.product_id = product.product_id;
+                    item.product_name = product.name;
+                    renderExchangeItems();
+                }
+            }
+            suggestBox.classList.add('d-none');
+            suggestBox.innerHTML = '';
+            return;
+        }
+
         const item = e.target.closest('.list-group-item[data-product-id]');
         if (!item) return;
         // Empêcher le comportement par défaut et la propagation
@@ -363,6 +464,33 @@ function setupEventListeners() {
             if (input) input.value = '';
         }
     }, true); // Utiliser la phase de capture pour s'exécuter en premier
+
+    // Cacher le dropdown si clic en dehors
+    document.addEventListener('click', (e) => {
+        // Fermer les suggestions au clic en dehors (sauf si on clique sur une suggestion)
+        if (e.target.closest('.list-group-item[data-product-id]')) return;
+        if (e.target.closest('.list-group-item[data-exchange-product-id]')) return;
+        document.querySelectorAll('.product-suggestions, .exchange-product-suggestions').forEach(box => {
+            // Vérifier si le clic est dans le conteneur parent (input-group ou le box lui-même)
+            const container = box.closest('.position-relative');
+            if (container && container.contains(e.target)) return;
+            if (box.contains(e.target)) return;
+            box.classList.add('d-none');
+        });
+    });
+
+    document.addEventListener('blur', (e) => {
+        // Fermer les suggestions au clic en dehors (sauf si on clique sur une suggestion)
+        if (e.target.closest('.list-group-item[data-product-id]')) return;
+        if (e.target.closest('.list-group-item[data-exchange-product-id]')) return;
+        document.querySelectorAll('.product-suggestions, .exchange-product-suggestions').forEach(box => {
+            // Vérifier si le clic est dans le conteneur parent (input-group ou le box lui-même)
+            const container = box.closest('.position-relative');
+            if (container && container.contains(e.target)) return;
+            if (box.contains(e.target)) return;
+            box.classList.add('d-none');
+        });
+    }, true);
 
     // Cacher le dropdown si clic en dehors
     document.addEventListener('click', (e) => {
@@ -874,13 +1002,36 @@ function displayInvoices() {
         const due = invoice.due_date || invoice.dueDate;
         const total = Number((invoice.total ?? invoice.total_amount) || 0);
         const isPaid = String(invoice.status).toUpperCase() === 'PAID';
+        
+        // Déterminer le type de facture et son badge
+        const invoiceType = invoice.invoice_type || 'normal';
+        let typeBadge = '';
+        let typeLabel = '';
+        
+        if (invoiceType === 'flash_sale') {
+            typeBadge = 'bg-warning text-dark';
+            typeLabel = '<i class="bi bi-lightning-fill me-1"></i>Flash';
+        } else if (invoiceType === 'exchange') {
+            typeBadge = 'bg-info';
+            typeLabel = '<i class="bi bi-arrow-left-right me-1"></i>Échange';
+        } else {
+            typeBadge = 'bg-secondary';
+            typeLabel = '<i class="bi bi-receipt me-1"></i>Normal';
+        }
+        
+        // Formater la date sans l'heure
+        const dateTimeDisplay = invDate ? formatDate(invDate) : '-';
+        
         return `
         <tr>
             <td>
                 <strong>${escapeHtml(invoice.invoice_number)}</strong>
             </td>
+            <td>
+                <span class="badge ${typeBadge}">${typeLabel}</span>
+            </td>
             <td>${escapeHtml(clientName || '-')}</td>
-            <td>${invDate ? formatDate(invDate) : '-'}</td>
+            <td>${dateTimeDisplay}</td>
             <td>${due ? formatDate(due) : '-'}</td>
             <td><strong>${formatCurrency(total)}</strong></td>
             <td>
@@ -1201,6 +1352,13 @@ function openInvoiceModal() {
             console.warn('Erreur initialisation signature pad:', e);
         }
 
+        // Initialiser l'état du formulaire selon le type de facture
+        try {
+            toggleInvoiceType();
+        } catch (e) {
+            console.warn('Erreur initialisation type facture:', e);
+        }
+
         // Afficher le modal - version sécurisée
         try {
             if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
@@ -1315,6 +1473,7 @@ function addInvoiceItem() {
         quantity: 1,
         unit_price: 0,
         total: 0,
+        is_gift: false,  // Article gratuit/cadeau
         external_price: null  // Prix d'achat externe (optionnel)
     };
     
@@ -1337,6 +1496,7 @@ function addCustomItem() {
         quantity: 1,
         unit_price: 0,
         total: 0,
+        is_gift: false,  // Article gratuit/cadeau
         external_price: null  // Prix d'achat externe (optionnel)
     };
     invoiceItems.push(newItem);
@@ -1369,9 +1529,19 @@ function updateSectionTitle(itemId, title) {
     item.section_title = String(title || '').trim();
 }
 
+// Basculer le statut cadeau d'un article
+function toggleGift(itemId, isGift) {
+    const item = invoiceItems.find(i => i.id === itemId);
+    if (!item) return;
+    item.is_gift = !!isGift;
+    // Pas besoin de recalculer les totaux car les cadeaux sont inclus dans le total de facture
+    // mais seront exclus des statistiques CA/bénéfices côté serveur
+}
+
 // Exposer les fonctions pour les attributs onclick en HTML
 window.addSectionRow = addSectionRow;
 window.updateSectionTitle = updateSectionTitle;
+window.toggleGift = toggleGift;
 
 function updateInvoiceItemsDisplay() {
     const tbody = document.getElementById('invoiceItemsBody');
@@ -1438,7 +1608,13 @@ function updateInvoiceItemsDisplay() {
                                 }
                                 options += productList.map(product => {
                                     const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
-                                    const available = variants.length > 0 ? variants.filter(v => !v.is_sold).length : Number(product.quantity || 0);
+                                    const available = variants.length > 0
+                                        ? variants.reduce((acc, v) => {
+                                            if (v && v.is_sold) return acc;
+                                            const q = Number(v && v.quantity);
+                                            return acc + (Number.isFinite(q) ? q : 1);
+                                        }, 0)
+                                        : Number(product.quantity || 0);
                                     const alreadySelected = selectedProductIds.has(Number(product.product_id)) && Number(product.product_id) !== Number(item.product_id);
                                     const isOutOfStock = available === 0;
                                     const disabled = alreadySelected || isOutOfStock;
@@ -1528,6 +1704,18 @@ function updateInvoiceItemsDisplay() {
                 })()}
             </td>
             <td><strong class="row-total">${formatCurrency(item.total)}</strong></td>
+            <td class="text-center">
+                <div class="form-check form-switch d-inline-block">
+                    <input class="form-check-input" type="checkbox" 
+                           id="gift_${item.id}" 
+                           ${item.is_gift ? 'checked' : ''}
+                           onchange="toggleGift(${item.id}, this.checked)"
+                           title="Marquer comme cadeau (ne compte pas dans le CA)">
+                    <label class="form-check-label" for="gift_${item.id}" title="Cadeau">
+                        <i class="bi bi-gift"></i>
+                    </label>
+                </div>
+            </td>
             <td>
                 <button class="btn btn-sm btn-outline-danger" onclick="removeInvoiceItem(${item.id})">
                     <i class="bi bi-trash"></i>
@@ -1941,12 +2129,17 @@ async function saveInvoice(status) {
         try { footerButtons.forEach(btn => { prevStates.push([btn, btn.disabled, btn.innerHTML]); btn.disabled = true; }); } catch(e) {}
         document.body.style.cursor = 'wait';
         const invoiceType = document.getElementById('invoiceType')?.value || 'normal';
+        const clientSelectValue = document.getElementById('clientSelect')?.value;
+        // Construire la date avec l'heure actuelle
+        const dateValue = document.getElementById('invoiceDate').value;
+        const dateWithTime = dateValue ? new Date(dateValue + 'T' + new Date().toTimeString().split(' ')[0]).toISOString() : new Date().toISOString();
+        
         const invoiceData = {
             invoice_number: document.getElementById('invoiceNumber').value,
             invoice_type: invoiceType,
-            client_id: parseInt(document.getElementById('clientSelect').value),
-            date: document.getElementById('invoiceDate').value,
-            due_date: document.getElementById('dueDate').value || null,
+            client_id: (invoiceType === 'flash_sale' || !clientSelectValue) ? null : parseInt(clientSelectValue),
+            date: dateWithTime,
+            due_date: document.getElementById('dueDate').value ? new Date(document.getElementById('dueDate').value).toISOString() : null,
             payment_method: (document.getElementById('invoicePaymentMethod') && document.getElementById('invoicePaymentMethod').value) || null,
             notes: document.getElementById('invoiceNotes').value.trim() || '',
             show_tax: document.getElementById('showTaxSwitch')?.checked ?? true,
@@ -1998,6 +2191,7 @@ async function saveInvoice(status) {
                             quantity: item.quantity || 1,
                             price: item.unit_price || 0,
                             total: item.total || ((item.quantity || 1) * (item.unit_price || 0)),
+                            is_gift: item.is_gift || false,
                             variant_id: null,
                             external_price: (() => {
                                 const extPrice = item.external_price;
@@ -2030,6 +2224,7 @@ async function saveInvoice(status) {
                             quantity: item.quantity,
                             price: item.unit_price,
                             total: item.total,
+                            is_gift: item.is_gift || false,
                             variant_id: item.variant_id || null,
                             external_price: finalExtPrice
                         }];
@@ -2057,6 +2252,7 @@ async function saveInvoice(status) {
                             quantity: 1,
                             price: item.unit_price,
                             total: item.unit_price,
+                            is_gift: item.is_gift || false,
                             variant_id: v ? v.variant_id : null,
                             variant_imei: imei,
                             external_price: finalExtPrice
@@ -2076,7 +2272,9 @@ async function saveInvoice(status) {
             }
         } catch (e) {}
 
-    if (!invoiceData.client_id || !invoiceData.date || invoiceData.items.length === 0) {
+        // Validation : client_id obligatoire sauf pour les ventes flash
+        const requiresClient = invoiceData.invoice_type !== 'flash_sale';
+        if ((requiresClient && !invoiceData.client_id) || !invoiceData.date || invoiceData.items.length === 0) {
             showError('Veuillez remplir tous les champs obligatoires et ajouter au moins un article');
             return;
         }
@@ -2419,6 +2617,36 @@ async function loadInvoiceDetail(invoiceId) {
         })()}</div>
         <div class="mb-2"><strong>Date:</strong> ${inv.date ? formatDate(inv.date) : '-'}</div>
         <div class="mb-2"><strong>Échéance:</strong> ${inv.due_date ? formatDate(inv.due_date) : '-'}</div>
+        ${inv.invoice_type === 'exchange' ? '<div class="mb-2"><span class="badge bg-info"><i class="bi bi-arrow-left-right me-1"></i>Facture d\'échange</span></div>' : ''}
+        ${(inv.exchange_items && inv.exchange_items.length) ? `
+        <div class="mb-3">
+            <strong>Produits échangés (reprise):</strong>
+            <div class="table-responsive mt-2">
+                <table class="table table-sm table-bordered">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Produit</th>
+                            <th>Quantité</th>
+                            <th>IMEI/Série</th>
+                            <th>Prix de reprise</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${inv.exchange_items.map(ex => `
+                            <tr>
+                                <td><strong>${escapeHtml(ex.product_name || '-')}</strong></td>
+                                <td class="text-center">${ex.quantity || 1}</td>
+                                <td>${ex.variant_imei ? `<code>${escapeHtml(ex.variant_imei)}</code>` : '<span class="text-muted">-</span>'}</td>
+                                <td class="text-end">${ex.price ? formatCurrency(ex.price) : '<span class="text-muted">-</span>'}</td>
+                                <td>${ex.notes ? escapeHtml(ex.notes) : '<span class="text-muted">-</span>'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        ` : ''}
         ${(inv.payments && inv.payments.length) ? `
         <div class=\"mb-2\"><strong>Paiements:</strong> ${inv.payments.length} paiement(s)</div>
         <div class=\"table-responsive\"> 
@@ -2600,20 +2828,32 @@ async function preloadInvoiceIntoForm(invoiceId) {
     }
     const { data: inv } = await axios.get(`/api/invoices/${invoiceId}`);
     openInvoiceModal();
-    document.getElementById('invoiceModalTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier la Facture';
-    document.getElementById('invoiceId').value = inv.invoice_id;
-    document.getElementById('invoiceNumber').value = inv.invoice_number;
-    document.getElementById('invoiceDate').value = (inv.date || '').split('T')[0] || '';
-    document.getElementById('dueDate').value = (inv.due_date || '').split('T')[0] || '';
+    
+    // Attendre que le modal soit complètement affiché avant de remplir les champs
+    await new Promise(resolve => setTimeout(resolve, 150));
+    
+    const titleEl = document.getElementById('invoiceModalTitle');
+    const idEl = document.getElementById('invoiceId');
+    const numberEl = document.getElementById('invoiceNumber');
+    const dateEl = document.getElementById('invoiceDate');
+    const dueDateEl = document.getElementById('dueDate');
     const clientSel = document.getElementById('clientSelect');
+    
+    if (titleEl) titleEl.innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier la Facture';
+    if (idEl) idEl.value = inv.invoice_id;
+    if (numberEl) numberEl.value = inv.invoice_number;
+    if (dateEl) dateEl.value = (inv.date || '').split('T')[0] || '';
+    if (dueDateEl) dueDateEl.value = (inv.due_date || '').split('T')[0] || '';
     if (clientSel) clientSel.value = inv.client_id;
     try {
         const c = (clients || []).find(x => Number(x.client_id) === Number(inv.client_id));
         const input = document.getElementById('clientSearch');
         if (input) input.value = c ? (c.name || '') : (inv.client_name || '');
     } catch(e) {}
-    document.getElementById('showTaxSwitch').checked = !!inv.show_tax;
-    document.getElementById('taxRateInput').value = Number(inv.tax_rate || 0);
+    const showTaxSwitch = document.getElementById('showTaxSwitch');
+    const taxRateInput = document.getElementById('taxRateInput');
+    if (showTaxSwitch) showTaxSwitch.checked = !!inv.show_tax;
+    if (taxRateInput) taxRateInput.value = Number(inv.tax_rate || 0);
     // Restaurer l'option d'affichage des prix par article
     const showItemPricesSwitch = document.getElementById('showSectionPricesSwitch');
     if (showItemPricesSwitch) {
@@ -2819,6 +3059,34 @@ async function preloadInvoiceIntoForm(invoiceId) {
     
     updateInvoiceItemsDisplay();
     calculateTotals();
+    
+    // Définir le type de facture et charger les produits échangés si c'est une facture d'échange
+    const invoiceTypeSelect = document.getElementById('invoiceType');
+    if (invoiceTypeSelect && inv.invoice_type) {
+        invoiceTypeSelect.value = inv.invoice_type;
+    }
+    
+    // Charger les produits échangés
+    if (inv.invoice_type === 'exchange' && inv.exchange_items && Array.isArray(inv.exchange_items)) {
+        exchangeItems = inv.exchange_items.map((exItem, index) => ({
+            id: Date.now() + index,
+            product_id: exItem.product_id || null,
+            product_name: exItem.product_name || '',
+            is_custom: !exItem.product_id,
+            variant_id: exItem.variant_id || null,
+            variant_imei: exItem.variant_imei || '',
+            quantity: exItem.quantity || 1,
+            price: exItem.price || 0,
+            notes: exItem.notes || ''
+        }));
+        renderExchangeItems();
+    } else {
+        exchangeItems = [];
+        renderExchangeItems();
+    }
+    
+    // Appeler toggleInvoiceType pour afficher/masquer les sections appropriées
+    toggleInvoiceType();
     
     // Préselectionner la méthode de paiement si disponible
     try {
@@ -3236,22 +3504,52 @@ async function populatePaymentMethodSelects(selectFirst = false) {
 
 // ============ GESTION DES FACTURES D'ÉCHANGE ============
 
-function toggleExchangeMode() {
+function toggleInvoiceType() {
     const typeSelect = document.getElementById('invoiceType');
     const exchangeSection = document.getElementById('exchangeItemsSection');
     const itemsTitle = document.getElementById('itemsSectionTitle');
+    const clientSection = document.querySelector('#clientSearch')?.closest('.col-md-6');
+    const clientSearchInput = document.getElementById('clientSearch');
+    const clientSelectHidden = document.getElementById('clientSelect');
     
-    if (!typeSelect || !exchangeSection) return;
+    if (!typeSelect) return;
     
-    const isExchange = typeSelect.value === 'exchange';
-    exchangeSection.style.display = isExchange ? 'block' : 'none';
+    const invoiceType = typeSelect.value;
+    const isExchange = invoiceType === 'exchange';
+    const isFlashSale = invoiceType === 'flash_sale';
     
+    // Gérer la section d'échange
+    if (exchangeSection) {
+        exchangeSection.style.display = isExchange ? 'block' : 'none';
+    }
+    
+    // Gérer le titre des articles
     if (itemsTitle) {
         const h6 = itemsTitle.querySelector('h6');
         if (h6) {
             h6.textContent = isExchange ? 'Articles (produits donnés au client)' : 'Articles';
         }
     }
+    
+    // Gérer le champ client pour les ventes flash
+    if (clientSection) {
+        if (isFlashSale) {
+            clientSection.style.display = 'none';
+            // Retirer l'attribut required pour les ventes flash
+            if (clientSearchInput) clientSearchInput.removeAttribute('required');
+            if (clientSelectHidden) clientSelectHidden.removeAttribute('required');
+        } else {
+            clientSection.style.display = 'block';
+            // Remettre l'attribut required pour les autres types
+            if (clientSearchInput) clientSearchInput.setAttribute('required', 'required');
+            if (clientSelectHidden) clientSelectHidden.setAttribute('required', 'required');
+        }
+    }
+}
+
+// Garder l'ancienne fonction pour compatibilité
+function toggleExchangeMode() {
+    toggleInvoiceType();
 }
 
 function addExchangeItem() {
@@ -3260,6 +3558,22 @@ function addExchangeItem() {
         id: itemId,
         product_id: null,
         product_name: '',
+        is_custom: false,
+        variant_id: null,
+        variant_imei: '',
+        quantity: 1,
+        notes: ''
+    });
+    renderExchangeItems();
+}
+
+function addCustomExchangeItem() {
+    const itemId = Date.now();
+    exchangeItems.push({
+        id: itemId,
+        product_id: null,
+        product_name: 'Article personnalisé',
+        is_custom: true,
         variant_id: null,
         variant_imei: '',
         quantity: 1,
@@ -3287,13 +3601,40 @@ function renderExchangeItems() {
             `<option value="${p.product_id}" ${item.product_id === p.product_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
         ).join('');
         
+        // Afficher un champ texte pour les articles personnalisés, sinon un champ de recherche
+        const productCell = item.is_custom ? `
+            <input type="text" class="form-control form-control-sm" 
+                   placeholder="Nom de l'article..."
+                   value="${escapeHtml(item.product_name || '')}"
+                   onchange="updateExchangeItem(${item.id}, 'product_name', this.value)">
+        ` : `
+            <div class="position-relative" style="min-width: 20rem;">
+                <input type="text" class="form-control form-control-sm exchange-product-search-input" 
+                       placeholder="Rechercher un produit..."
+                       value="${item.product_name || ''}"
+                       data-exchange-item-id="${item.id}" />
+                <div class="exchange-product-suggestions list-group position-absolute w-100 d-none" 
+                     style="max-height: 300px; overflow-y: auto; z-index: 1050; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                </div>
+            </div>
+        `;
+        
+        // Champ prix de reprise pour tous les produits échangés
+        const priceCell = `
+            <input type="number" class="form-control form-control-sm" 
+                   placeholder="Prix de reprise..."
+                   min="0" step="1"
+                   value="${item.price || ''}"
+                   onchange="updateExchangeItem(${item.id}, 'price', parseFloat(this.value) || 0)">
+        `;
+        
         return `
             <tr data-item-id="${item.id}">
                 <td>
-                    <select class="form-select form-select-sm" onchange="updateExchangeItem(${item.id}, 'product_id', this.value)">
-                        <option value="">Sélectionner un produit...</option>
-                        ${productOptions}
-                    </select>
+                    ${productCell}
+                </td>
+                <td>
+                    ${priceCell}
                 </td>
                 <td>
                     <input type="text" class="form-control form-control-sm" 
@@ -3331,6 +3672,12 @@ function updateExchangeItem(itemId, field, value) {
         const product = products.find(p => p.product_id === parseInt(value));
         if (product) {
             item.product_name = product.name;
+        }
+    } else if (field === 'product_name') {
+        item.product_name = value;
+        // Pour les articles personnalisés, s'assurer que product_id reste null
+        if (item.is_custom) {
+            item.product_id = null;
         }
     } else {
         item[field] = value;

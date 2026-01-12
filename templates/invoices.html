@@ -157,6 +157,7 @@
                 <thead>
                     <tr>
                         <th data-col="number">Numéro</th>
+                        <th data-col="type">Type</th>
                         <th data-col="client">Client</th>
                         <th data-col="date">Date</th>
                         <th data-col="due">Échéance</th>
@@ -167,7 +168,7 @@
                 </thead>
                 <tbody id="invoicesTableBody">
                     <tr>
-                        <td colspan="7" class="text-center">
+                        <td colspan="8" class="text-center">
                             <div class="spinner-border" role="status">
                                 <span class="visually-hidden">Chargement...</span>
                             </div>
@@ -201,9 +202,10 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label for="invoiceType" class="form-label">Type de facture *</label>
-                                <select class="form-select" id="invoiceType" required onchange="toggleExchangeMode()">
+                                <select class="form-select" id="invoiceType" required onchange="toggleInvoiceType()">
                                     <option value="normal">Facture normale</option>
                                     <option value="exchange">Facture d'échange</option>
+                                    <option value="flash_sale">Vente Flash (sans client)</option>
                                 </select>
                             </div>
                         </div>
@@ -254,15 +256,21 @@
                         </div>
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <h6>Produits reçus du client</h6>
-                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addExchangeItem()">
-                                <i class="bi bi-plus-circle me-1"></i>Ajouter un produit échangé
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addExchangeItem()">
+                                    <i class="bi bi-plus-circle me-1"></i>Ajouter un produit échangé
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addCustomExchangeItem()">
+                                    <i class="bi bi-file-earmark-plus me-1"></i>Ajouter un article
+                                </button>
+                            </div>
                         </div>
                         <div class="table-responsive">
                             <table class="table table-sm">
                                 <thead>
                                     <tr>
                                         <th>Produit</th>
+                                        <th>Prix</th>
                                         <th>Variante/IMEI</th>
                                         <th>Quantité</th>
                                         <th>Notes</th>
@@ -313,6 +321,7 @@
                                         <th>Prix externe</th>
                                         <th>Bénéfice</th>
                                         <th>Total</th>
+                                        <th><i class="bi bi-gift" title="Cadeau"></i></th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>

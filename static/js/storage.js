@@ -185,6 +185,13 @@ const apiStorage = new ApiStorage();
 
 // Préchargement simple des paramètres au chargement
 document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        if (window.authManager && typeof window.authManager.verifyAuth === 'function') {
+            await window.authManager.verifyAuth();
+        }
+    } catch (e) {
+        // ignore
+    }
     const isAuthenticated = !!(window.authManager && window.authManager.token);
     if (!isAuthenticated) return;
     await apiStorage.preloadSettings();

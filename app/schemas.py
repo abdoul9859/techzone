@@ -52,8 +52,8 @@ class BankTransactionCreate(BaseModel):
     description: Optional[str] = None
     amount: Decimal
     date: date
-    # méthode de paiement: "virement" ou "cheque"
-    method: Literal['virement', 'cheque']
+    # méthode de paiement
+    method: Literal['virement', 'cheque', 'carte', 'especes', 'mobile_money', 'prelevement', 'virement_instantane', 'autre']
     reference: Optional[str] = None
 
 class BankTransactionResponse(BaseModel):
@@ -63,7 +63,7 @@ class BankTransactionResponse(BaseModel):
     description: Optional[str] = None
     amount: Decimal
     date: date
-    method: Literal['virement', 'cheque']
+    method: Literal['virement', 'cheque', 'carte', 'especes', 'mobile_money', 'prelevement', 'virement_instantane', 'autre']
     reference: Optional[str] = None
 
     class Config:
@@ -136,6 +136,8 @@ class ProductVariantCreate(BaseModel):
     imei_serial: str
     barcode: Optional[str] = None
     condition: Optional[str] = None  # neuf | occasion | venant (configurable)
+    price: Optional[Decimal] = None  # Prix spécifique à la variante (optionnel)
+    quantity: Optional[int] = None  # Quantité pour variantes avec IMEI similaires (optionnel)
     attributes: List[ProductVariantAttributeCreate] = []
 
 class ProductVariantResponse(BaseModel):
@@ -143,6 +145,8 @@ class ProductVariantResponse(BaseModel):
     imei_serial: str
     barcode: Optional[str]
     condition: Optional[str] = None
+    price: Optional[Decimal] = None
+    quantity: Optional[int] = None
     is_sold: bool
     created_at: datetime
     attributes: List[ProductVariantAttributeResponse] = []
@@ -157,7 +161,7 @@ class ProductCreate(BaseModel):
     quantity: int = 0
     price: Decimal
     wholesale_price: Optional[Decimal] = None
-    purchase_price: Optional[Decimal] = 0.00
+    purchase_price: Optional[Decimal] = None
     category: Optional[str] = None
     brand: Optional[str] = None
     model: Optional[str] = None
@@ -166,6 +170,7 @@ class ProductCreate(BaseModel):
     has_unique_serial: bool = False
     entry_date: Optional[datetime] = None
     notes: Optional[str] = None
+    source: Optional[str] = 'purchase'  # purchase | exchange | return | other
     image_path: Optional[str] = None  # Chemin vers l'image du produit
     is_archived: Optional[bool] = False
     variants: List[ProductVariantCreate] = []
@@ -185,6 +190,7 @@ class ProductUpdate(BaseModel):
     has_unique_serial: Optional[bool] = None
     entry_date: Optional[datetime] = None
     notes: Optional[str] = None
+    source: Optional[str] = None  # purchase | exchange | return | other
     image_path: Optional[str] = None  # Chemin vers l'image du produit
     is_archived: Optional[bool] = None
     variants: Optional[List[ProductVariantCreate]] = None
@@ -196,7 +202,7 @@ class ProductResponse(BaseModel):
     quantity: int
     price: Decimal
     wholesale_price: Optional[Decimal]
-    purchase_price: Decimal
+    purchase_price: Optional[Decimal]
     category: Optional[str]
     brand: Optional[str]
     model: Optional[str]
@@ -205,9 +211,10 @@ class ProductResponse(BaseModel):
     has_unique_serial: bool
     entry_date: Optional[datetime]
     notes: Optional[str]
-    image_path: Optional[str] = None  # Chemin vers l'image du produit
-    is_archived: Optional[bool] = False
+    image_path: Optional[str] = None
+    source: Optional[str] = 'purchase'
     created_at: datetime
+    is_archived: Optional[bool] = False
     variants: List[ProductVariantResponse] = []
 
     class Config:
@@ -222,6 +229,8 @@ class ProductVariantListItem(BaseModel):
     imei_serial: str
     barcode: Optional[str]
     condition: Optional[str] = None
+    price: Optional[Decimal] = None
+    quantity: Optional[int] = None
     is_sold: bool
     created_at: datetime
 
@@ -245,6 +254,7 @@ class ProductListItem(BaseModel):
     entry_date: Optional[datetime]
     notes: Optional[str]
     image_path: Optional[str] = None  # Chemin vers l'image du produit
+    source: Optional[str] = 'purchase'
     created_at: datetime
     is_archived: Optional[bool] = False
     # Champs légers pour l'affichage de la liste (optimisation)
@@ -363,6 +373,7 @@ class InvoiceItemCreate(BaseModel):
     quantity: int
     price: Decimal
     total: Decimal
+    is_gift: Optional[bool] = False  # Article gratuit/cadeau
     variant_id: Optional[int] = None
     variant_imei: Optional[str] = None
     external_price: Optional[Decimal] = None  # Prix d'achat externe (optionnel)
@@ -380,6 +391,7 @@ class InvoiceItemResponse(BaseModel):
     quantity: int
     price: Decimal
     total: Decimal
+    is_gift: Optional[bool] = False  # Article gratuit/cadeau
     external_price: Optional[Decimal] = None
     external_profit: Optional[Decimal] = None  # Bénéfice calculé
     
@@ -390,6 +402,7 @@ class InvoiceExchangeItemCreate(BaseModel):
     product_id: Optional[int] = None
     product_name: str
     quantity: int
+    price: Optional[Decimal] = None  # Prix pour les articles personnalisés
     variant_id: Optional[int] = None
     variant_imei: Optional[str] = None
     notes: Optional[str] = None
@@ -408,8 +421,8 @@ class InvoiceExchangeItemResponse(BaseModel):
 
 class InvoiceCreate(BaseModel):
     invoice_number: str
-    invoice_type: str = "normal"  # normal, exchange
-    client_id: int
+    invoice_type: str = "normal"  # normal, exchange, flash_sale
+    client_id: Optional[int] = None  # Optionnel pour les ventes flash
     quotation_id: Optional[int] = None
     date: datetime
     due_date: Optional[datetime] = None
@@ -435,7 +448,7 @@ class InvoiceResponse(BaseModel):
     invoice_id: int
     invoice_number: str
     invoice_type: str = "normal"
-    client_id: int
+    client_id: Optional[int] = None
     client_name: str  # Ajouter le nom du client
     quotation_id: Optional[int]
     date: datetime
@@ -588,6 +601,7 @@ class SupplierInvoiceResponse(BaseModel):
     notes: Optional[str]
     pdf_path: Optional[str] = None  # Chemin vers le PDF
     pdf_filename: Optional[str] = None  # Nom du fichier PDF
+    items: Optional[list] = None  # Articles structurés en JSON
     created_at: datetime
     
     class Config:

@@ -5,9 +5,14 @@
 {% block content %}
 <div class="row">
     <div class="col-12">
-        <h1 class="h3 mb-4">
-            <i class="bi bi-speedometer2 me-2"></i>Tableau de bord
-        </h1>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="h3 mb-0">
+                <i class="bi bi-speedometer2 me-2"></i>Tableau de bord
+            </h1>
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadDashboardData(true)" title="Rafraîchir les données">
+                <i class="bi bi-arrow-clockwise me-1"></i>Rafraîchir
+            </button>
+        </div>
     </div>
 </div>
 
@@ -517,30 +522,76 @@ let categoryChart = null;
 document.addEventListener('DOMContentLoaded', function() {
     initUserStatsDateControls();
     loadDashboardData();
+    
+    // Rafraîchir automatiquement le dashboard toutes les 30 secondes
+    setInterval(() => {
+        loadDashboardData();
+    }, 30000); // 30 secondes
+    
+    // Écouter les événements de changement de page pour rafraîchir
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            // Page redevenue visible, rafraîchir les données
+            loadDashboardData();
+        }
+    });
 });
 
-async function loadDashboardData() {
+async function loadDashboardData(forceRefresh = false) {
     try {
         // 1) Charger toutes les stats du dashboard en une seule requête optimisée
-        const dashboardResponse = await apiRequest('/api/dashboard/stats');
-        const stats = dashboardResponse.data || {};
+        const url = forceRefresh ? '/api/dashboard/stats?force_refresh=true' : '/api/dashboard/stats';
+        const dashboardResponse = await apiRequest(url);
+        
+        // Extraire les stats - vérifier si data existe ou si la réponse est directement les stats
+        let stats = {};
+        if (dashboardResponse && dashboardResponse.data) {
+            stats = dashboardResponse.data;
+        } else if (dashboardResponse && typeof dashboardResponse === 'object') {
+            // Si la réponse est directement l'objet stats
+            stats = dashboardResponse;
+        }
+        
+        // Log de debug seulement si erreur
+        if (!stats || Object.keys(stats).length === 0) {
+            console.warn('⚠️ Dashboard stats vides:', dashboardResponse);
+        }
 
-        // Stats de base - mise à jour immédiate
-        document.getElementById('total-products').textContent = stats.total_stock || 0;
-        document.getElementById('monthly-revenue').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.monthly_revenue || 0);
-        document.getElementById('pending-invoices').textContent = stats.pending_invoices || 0;
-        document.getElementById('unpaid-amount').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.unpaid_amount || 0);
+        // Stats de base - mise à jour immédiate avec vérifications
+        const totalProductsEl = document.getElementById('total-products');
+        if (totalProductsEl) totalProductsEl.textContent = stats.total_stock || 0;
+        
+        const monthlyRevenueEl = document.getElementById('monthly-revenue');
+        if (monthlyRevenueEl) monthlyRevenueEl.textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.monthly_revenue || 0);
+        
+        const pendingInvoicesEl = document.getElementById('pending-invoices');
+        if (pendingInvoicesEl) pendingInvoicesEl.textContent = stats.pending_invoices || 0;
+        
+        const unpaidAmountEl = document.getElementById('unpaid-amount');
+        if (unpaidAmountEl) unpaidAmountEl.textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.unpaid_amount || 0);
 
         // KPIs avancés
-        document.getElementById('avg-ticket').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.avg_ticket || 0);
-        document.getElementById('quotes-conv').textContent = `${(stats.conversion_rate || 0).toFixed(1)}%`;
-        document.getElementById('critical-stock').textContent = stats.critical_stock || 0;
-        document.getElementById('active-customers').textContent = stats.active_customers || 0;
+        const avgTicketEl = document.getElementById('avg-ticket');
+        if (avgTicketEl) avgTicketEl.textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.avg_ticket || 0);
+        
+        const quotesConvEl = document.getElementById('quotes-conv');
+        if (quotesConvEl) quotesConvEl.textContent = `${(stats.conversion_rate || 0).toFixed(1)}%`;
+        
+        const criticalStockEl = document.getElementById('critical-stock');
+        if (criticalStockEl) criticalStockEl.textContent = stats.critical_stock || 0;
+        
+        const activeCustomersEl = document.getElementById('active-customers');
+        if (activeCustomersEl) activeCustomersEl.textContent = stats.active_customers || 0;
 
         // Statistiques financières détaillées
-        document.getElementById('monthly-revenue-gross').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.monthly_revenue_gross || 0);
-        document.getElementById('monthly-supplier-payments').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.monthly_supplier_payments || 0);
-        document.getElementById('monthly-daily-purchases').textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.monthly_daily_purchases || 0);
+        const monthlyRevenueGrossEl = document.getElementById('monthly-revenue-gross');
+        if (monthlyRevenueGrossEl) monthlyRevenueGrossEl.textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.monthly_revenue_gross || 0);
+        
+        const monthlySupplierPaymentsEl = document.getElementById('monthly-supplier-payments');
+        if (monthlySupplierPaymentsEl) monthlySupplierPaymentsEl.textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.monthly_supplier_payments || 0);
+        
+        const monthlyDailyPurchasesEl = document.getElementById('monthly-daily-purchases');
+        if (monthlyDailyPurchasesEl) monthlyDailyPurchasesEl.textContent = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(stats.monthly_daily_purchases || 0);
         
         // Bénéfice externe (visible uniquement pour admin et manager)
         const isAdminOrManager = window.authManager && (window.authManager.isAdmin() || (window.authManager.userData && (window.authManager.userData.role === 'admin' || window.authManager.userData.role === 'manager')));
@@ -552,7 +603,9 @@ async function loadDashboardData() {
         } else if (externalProfitCard) {
             externalProfitCard.style.display = 'none';
         }
-        document.getElementById('out-of-stock').textContent = stats.out_of_stock || 0;
+        
+        const outOfStockEl = document.getElementById('out-of-stock');
+        if (outOfStockEl) outOfStockEl.textContent = stats.out_of_stock || 0;
 
         // Répartition des paiements
         const methodsContainer = document.getElementById('payment-methods-chart');
@@ -592,10 +645,7 @@ async function loadDashboardData() {
             loadCategoryChart()
         ]);
 
-        // Afficher info cache si disponible
-        if (stats.cached_at) {
-            console.log('📊 Dashboard stats loaded from cache at:', stats.cached_at);
-        }
+        // Dashboard chargé avec succès
 
     } catch (error) {
         console.error('Erreur lors du chargement des données:', error);

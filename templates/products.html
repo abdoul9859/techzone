@@ -43,10 +43,25 @@
                 <option value="">Tous les états</option>
             </select>
             <div class="form-text text-muted" id="conditionsHint" style="display:none">
-                <small>Options mises en cache</small>
+                Chargement des états...
             </div>
         </div>
     </div>
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label for="sourceFilter" class="form-label">Source</label>
+            <select class="form-select" id="sourceFilter">
+                <option value="">Toutes les sources</option>
+                <option value="purchase">Achat</option>
+                <option value="exchange">Échange</option>
+                <option value="return">Retour</option>
+                <option value="other">Autre</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
     <div class="col-md-3">
         <div class="mb-3">
             <label class="form-label">Variantes</label>
@@ -229,9 +244,9 @@
                     </div>
 
                     <div class="row">
-                        <div class="col-md-4 admin-only" style="display: none;">
+                        <div class="col-md-4">
                             <div class="mb-3">
-                                <label for="productPurchasePrice" class="form-label">Prix d'achat (FCFA)</label>
+                                <label for="productPurchasePrice" class="form-label">Prix de revient (FCFA)</label>
                                 <input type="number" class="form-control" id="productPurchasePrice" step="1" min="0" inputmode="numeric" pattern="[0-9]*">
                             </div>
                         </div>

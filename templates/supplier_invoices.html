@@ -50,7 +50,7 @@
             <i class="bi bi-receipt-cutoff me-2"></i>Factures Fournisseur
         </h1>
         <button class="btn btn-primary" onclick="openInvoiceModal()">
-            <i class="bi bi-upload me-2"></i>Enregistrer PDF
+            <i class="bi bi-plus-circle me-2"></i>Nouvelle Facture
         </button>
     </div>
 
@@ -163,13 +163,13 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="invoiceModalLabel">Enregistrer une Facture PDF</h5>
+                <h5 class="modal-title" id="invoiceModalLabel">Nouvelle facture fournisseur</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
 <form id="invoiceForm">
     <div class="modal-body">
         <div class="row g-3">
-            <!-- Informations minimales -->
+            <!-- Fournisseur -->
             <div class="col-md-6">
                 <label for="supplierSearch" class="form-label">Fournisseur *</label>
                 <div class="input-group">
@@ -184,24 +184,61 @@
                 <div id="supplierSearchResults" class="list-group position-absolute w-100" 
                      style="z-index: 1050; max-height: 200px; overflow-y: auto; display: none;"></div>
             </div>
+            
+            <!-- Photo de la facture -->
             <div class="col-md-6">
-                <label for="pdfFile" class="form-label">Fichier PDF de la facture *</label>
-                <input type="file" id="pdfFile" class="form-control" accept=".pdf" required />
-                <div class="form-text">Téléchargez le PDF de la facture fournisseur</div>
+                <label for="invoiceImage" class="form-label">Photo de la facture</label>
+                <input type="file" id="invoiceImage" class="form-control" accept="image/*">
+                <div class="form-text">Téléchargez une photo de la facture fournisseur (optionnel)</div>
             </div>
+            
+            <!-- Numéro de facture -->
+            <div class="col-md-6">
+                <label for="invoiceNumber" class="form-label">Numéro de facture *</label>
+                <input type="text" id="invoiceNumber" class="form-control" required>
+            </div>
+            
+            <!-- Date de facture -->
+            <div class="col-md-6">
+                <label for="invoiceDate" class="form-label">Date de facture *</label>
+                <input type="date" id="invoiceDate" class="form-control" required>
+            </div>
+            
+            <!-- Date d'échéance -->
+            <div class="col-md-6">
+                <label for="dueDate" class="form-label">Date d'échéance</label>
+                <input type="date" id="dueDate" class="form-control">
+            </div>
+            
+            <!-- Montant total -->
+            <div class="col-md-6">
+                <label for="totalAmount" class="form-label">Montant total (FCFA) *</label>
+                <input type="number" id="totalAmount" class="form-control bg-light" step="1" min="0" required readonly style="background-color: #e9ecef !important; cursor: not-allowed;">
+            </div>
+            
+            <!-- Notes -->
             <div class="col-12">
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle me-2"></i>
-                    <strong>Simple et rapide :</strong> Il suffit de sélectionner le fournisseur et d'uploader le PDF. 
-                    Toutes les autres informations seront extraites du document ou pourront être ajoutées plus tard.
+                <label for="invoiceNotes" class="form-label">Notes</label>
+                <textarea id="invoiceNotes" class="form-control" rows="2" placeholder="Notes ou commentaires sur cette facture..."></textarea>
+            </div>
+            
+            <!-- Section Articles -->
+            <div class="col-12">
+                <hr class="my-3">
+                <h6 class="mb-3"><i class="bi bi-box-seam me-2"></i>Articles de la facture</h6>
+                <div id="invoiceItemsContainer">
+                    <!-- Les articles seront ajoutés ici dynamiquement -->
                 </div>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addInvoiceItem()">
+                    <i class="bi bi-plus-circle me-1"></i>Ajouter un article
+                </button>
             </div>
         </div>
     </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
                     <button type="submit" class="btn btn-primary">
-                        <span id="saveButtonText">Enregistrer PDF</span>
+                        <span id="saveButtonText">Enregistrer</span>
                     </button>
                 </div>
             </form>

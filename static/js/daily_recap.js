@@ -102,10 +102,14 @@ function updateDashboardSection(dashboard) {
         const criticalStockEl = document.getElementById('dashboardCriticalStock');
         const outOfStockEl = document.getElementById('dashboardOutOfStock');
         const lowStockEl = document.getElementById('dashboardLowStock');
+        const stockTotalValueEl = document.getElementById('dashboardStockTotalValue');
+        const stockSaleValueEl = document.getElementById('dashboardStockSaleValue');
         if (totalStockEl) totalStockEl.textContent = String(dashboard.total_stock ?? '-');
         if (criticalStockEl) criticalStockEl.textContent = String(dashboard.critical_stock ?? '-');
         if (outOfStockEl) outOfStockEl.textContent = String(dashboard.out_of_stock ?? '-');
         if (lowStockEl) lowStockEl.textContent = String(dashboard.low_stock ?? '-');
+        if (stockTotalValueEl) stockTotalValueEl.textContent = formatCurrency(dashboard.stock_total_value || 0);
+        if (stockSaleValueEl) stockSaleValueEl.textContent = formatCurrency(dashboard.stock_sale_value || 0);
 
         const topProductsBody = document.getElementById('topProductsTable');
         if (topProductsBody) {
@@ -197,21 +201,30 @@ async function loadPeriodSummary() {
 }
 
 function updateDateDisplay(dateFormatted) {
-    document.getElementById('currentDate').textContent = `Récap du ${dateFormatted}`;
+    const el = document.getElementById('currentDate');
+    if (el) el.textContent = `Récap du ${dateFormatted}`;
 }
 
 function updateFinancialSummary(finances) {
+    if (!finances) return;
+    
     // Mise à jour de la vue caisse
-    document.getElementById('paymentsReceived').textContent = formatCurrency(finances.payments_received);
-    document.getElementById('bankEntries').textContent = formatCurrency(finances.bank_entries);
-    document.getElementById('bankExits').textContent = formatCurrency(finances.bank_exits);
+    const paymentsEl = document.getElementById('paymentsReceived');
+    if (paymentsEl) paymentsEl.textContent = formatCurrency(finances.payments_received || 0);
+    
+    const bankEntriesEl = document.getElementById('bankEntries');
+    if (bankEntriesEl) bankEntriesEl.textContent = formatCurrency(finances.bank_entries || 0);
+    
+    const bankExitsEl = document.getElementById('bankExits');
+    if (bankExitsEl) bankExitsEl.textContent = formatCurrency(finances.bank_exits || 0);
     
     const balanceElement = document.getElementById('dailyBalance');
-    const balance = finances.daily_balance;
-    balanceElement.textContent = formatCurrency(balance);
-    
-    // Couleur du solde selon positif/négatif
-    balanceElement.className = balance >= 0 ? 'h4 text-success mb-1' : 'h4 text-danger mb-1';
+    if (balanceElement) {
+        const balance = finances.daily_balance || 0;
+        balanceElement.textContent = formatCurrency(balance);
+        // Couleur du solde selon positif/négatif
+        balanceElement.className = balance >= 0 ? 'h4 text-success mb-1' : 'h4 text-danger mb-1';
+    }
 
     // Achats quotidiens (déduits) et CA net
     const dpOut = document.getElementById('dailyPurchasesOut');
@@ -239,11 +252,20 @@ function updateFinancialSummary(finances) {
 }
 
 function updateQuickStats(data) {
+    if (!data) return;
+    
     // Statistiques rapides
-    document.getElementById('invoicesCreated').textContent = data.invoices.created_count;
-    document.getElementById('quotationsCreated').textContent = data.quotations.created_count;
-    document.getElementById('stockEntries').textContent = data.stock.entries_count;
-    document.getElementById('stockExits').textContent = data.stock.exits_count;
+    const invoicesEl = document.getElementById('invoicesCreated');
+    if (invoicesEl) invoicesEl.textContent = (data.invoices?.created_count || 0);
+    
+    const quotationsEl = document.getElementById('quotationsCreated');
+    if (quotationsEl) quotationsEl.textContent = (data.quotations?.created_count || 0);
+    
+    const stockEntriesEl = document.getElementById('stockEntries');
+    if (stockEntriesEl) stockEntriesEl.textContent = (data.stock?.entries_count || 0);
+    
+    const stockExitsEl = document.getElementById('stockExits');
+    if (stockExitsEl) stockExitsEl.textContent = (data.stock?.exits_count || 0);
 }
 
 function updateDetailedTables(data) {

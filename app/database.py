@@ -1,10 +1,11 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint, Index, Numeric, Date
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint, Index, Numeric, Date, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+import threading
 
 load_dotenv()
 
@@ -234,6 +235,7 @@ class Product(Base):
     entry_date = Column(DateTime)
     notes = Column(Text)
     image_path = Column(String(500), nullable=True)  # Chemin vers l'image du produit
+    source = Column(String(50), nullable=True, default='purchase')  # purchase | exchange | return | other
     created_at = Column(DateTime, default=func.now())
     is_archived = Column(Boolean, default=False, index=True)  # Produit archivé (masqué par défaut)
 
@@ -265,6 +267,8 @@ class ProductVariant(Base):
     imei_serial = Column(String(255), unique=True, nullable=False)
     barcode = Column(String(128), unique=True)  # Selon les mémoires
     condition = Column(String(50), nullable=True)  # hérite par défaut du produit
+    price = Column(Numeric(10, 2), nullable=True)  # Prix spécifique à la variante (optionnel)
+    quantity = Column(Integer, nullable=True)  # Quantité pour variantes avec IMEI similaires (optionnel)
     is_sold = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
     
@@ -398,8 +402,9 @@ class SupplierInvoice(Base):
     status = Column(String(20), default="pending")  # pending, partial, paid, overdue
     payment_method = Column(String(50))
     notes = Column(Text)
-    pdf_path = Column(String(500), nullable=False)  # Obligatoire - chemin vers le fichier PDF
-    pdf_filename = Column(String(255), nullable=False)  # Obligatoire - nom original du fichier PDF
+    items_json = Column(Text, nullable=True)  # Articles en JSON
+    pdf_path = Column(String(500), nullable=True)  # Optionnel - chemin vers le fichier PDF/image
+    pdf_filename = Column(String(255), nullable=True)  # Optionnel - nom original du fichier
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -471,8 +476,8 @@ class Invoice(Base):
     
     invoice_id = Column(Integer, primary_key=True, index=True)
     invoice_number = Column(String(50), unique=True, nullable=False)
-    invoice_type = Column(String(20), default="normal")  # normal, exchange
-    client_id = Column(Integer, ForeignKey("clients.client_id"))
+    invoice_type = Column(String(20), default="normal")  # normal, exchange, flash_sale
+    client_id = Column(Integer, ForeignKey("clients.client_id"), nullable=True)
     quotation_id = Column(Integer, ForeignKey("quotations.quotation_id"))
     date = Column(DateTime, nullable=False)
     due_date = Column(DateTime)
@@ -482,6 +487,7 @@ class Invoice(Base):
     tax_rate = Column(Numeric(5, 2), default=18.00)
     tax_amount = Column(Numeric(12, 2), nullable=False)
     total = Column(Numeric(12, 2), nullable=False)
+    exchange_discount = Column(Numeric(12, 2), default=0)  # Montant total de reprise des produits échangés
     paid_amount = Column(Numeric(12, 2), default=0)
     remaining_amount = Column(Numeric(12, 2), nullable=False)
     notes = Column(Text)
@@ -515,6 +521,7 @@ class InvoiceItem(Base):
     quantity = Column(Integer, nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
     total = Column(Numeric(12, 2), nullable=False)
+    is_gift = Column(Boolean, default=False, nullable=False)  # Article gratuit/cadeau (sort du stock mais n'impacte pas CA/bénéfices)
     # Prix externe et bénéfice (pour produits achetés dans d'autres boutiques)
     external_price = Column(Numeric(10, 2), nullable=True)  # Prix d'achat externe (optionnel)
     external_profit = Column(Numeric(12, 2), nullable=True)  # Bénéfice calculé (total - external_price * quantity)
@@ -532,6 +539,7 @@ class InvoiceExchangeItem(Base):
     product_id = Column(Integer, ForeignKey("products.product_id"), nullable=True)
     product_name = Column(String(100), nullable=False)
     quantity = Column(Integer, nullable=False)
+    price = Column(Numeric(10, 2), nullable=True)  # Prix de reprise du produit échangé
     variant_id = Column(Integer, ForeignKey("product_variants.variant_id"), nullable=True)
     variant_imei = Column(String(255), nullable=True)
     # Notes pour le produit échangé
@@ -730,10 +738,288 @@ class MigrationLog(Base):
 def create_tables():
     Base.metadata.create_all(bind=engine)
 
+
+_variant_price_checked = False
+_variant_price_lock = threading.Lock()
+_variant_quantity_checked = False
+_variant_quantity_lock = threading.Lock()
+_product_source_checked = False
+_product_source_lock = threading.Lock()
+_invoice_item_is_gift_checked = False
+_invoice_item_is_gift_lock = threading.Lock()
+_invoice_client_nullable_checked = False
+_invoice_client_nullable_lock = threading.Lock()
+_exchange_item_price_checked = False
+_exchange_item_price_lock = threading.Lock()
+_invoice_exchange_discount_checked = False
+_invoice_exchange_discount_lock = threading.Lock()
+
+
+def _ensure_variant_price_column(db) -> None:
+    """Ajoute la colonne product_variants.price si absente (migration légère sans Alembic)."""
+    global _variant_price_checked
+    if _variant_price_checked:
+        return
+    with _variant_price_lock:
+        if _variant_price_checked:
+            return
+        try:
+            bind = db.get_bind()
+            dialect = bind.dialect.name
+            if dialect == 'sqlite':
+                res = db.execute(text("PRAGMA table_info(product_variants)"))
+                cols = [row[1] for row in res]
+                if 'price' not in cols:
+                    db.execute(text("ALTER TABLE product_variants ADD COLUMN price NUMERIC(10, 2)"))
+                    db.commit()
+            else:
+                # PostgreSQL
+                result = db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'product_variants' AND column_name = 'price'"
+                ))
+                if not result.fetchone():
+                    db.execute(text("ALTER TABLE product_variants ADD COLUMN price NUMERIC(10, 2)"))
+                    db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            _variant_price_checked = True
+
+
+def _ensure_variant_quantity_column(db) -> None:
+    """Ajoute la colonne product_variants.quantity si absente (migration légère sans Alembic)."""
+    global _variant_quantity_checked
+    if _variant_quantity_checked:
+        return
+    with _variant_quantity_lock:
+        if _variant_quantity_checked:
+            return
+        try:
+            bind = db.get_bind()
+            dialect = bind.dialect.name
+            if dialect == 'sqlite':
+                res = db.execute(text("PRAGMA table_info(product_variants)"))
+                cols = [row[1] for row in res]
+                if 'quantity' not in cols:
+                    db.execute(text("ALTER TABLE product_variants ADD COLUMN quantity INTEGER"))
+                    db.commit()
+            else:
+                # PostgreSQL
+                result = db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'product_variants' AND column_name = 'quantity'"
+                ))
+                if not result.fetchone():
+                    db.execute(text("ALTER TABLE product_variants ADD COLUMN quantity INTEGER"))
+                    db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            _variant_quantity_checked = True
+
+
+def _ensure_product_source_column(db) -> None:
+    """Ajoute la colonne products.source si absente (migration légère sans Alembic)."""
+    global _product_source_checked
+    if _product_source_checked:
+        return
+    with _product_source_lock:
+        if _product_source_checked:
+            return
+        try:
+            bind = db.get_bind()
+            dialect = bind.dialect.name
+            if dialect == 'sqlite':
+                res = db.execute(text("PRAGMA table_info(products)"))
+                cols = [row[1] for row in res]
+                if 'source' not in cols:
+                    db.execute(text("ALTER TABLE products ADD COLUMN source VARCHAR(50) DEFAULT 'purchase'"))
+                    db.commit()
+            else:
+                # PostgreSQL
+                result = db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'products' AND column_name = 'source'"
+                ))
+                if not result.fetchone():
+                    db.execute(text("ALTER TABLE products ADD COLUMN source VARCHAR(50) DEFAULT 'purchase'"))
+                    db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            _product_source_checked = True
+
+
+def _ensure_invoice_item_is_gift_column(db) -> None:
+    """Ajoute la colonne invoice_items.is_gift si absente (migration légère sans Alembic)."""
+    global _invoice_item_is_gift_checked
+    if _invoice_item_is_gift_checked:
+        return
+    with _invoice_item_is_gift_lock:
+        if _invoice_item_is_gift_checked:
+            return
+        try:
+            bind = db.get_bind()
+            dialect = bind.dialect.name
+            if dialect == 'sqlite':
+                res = db.execute(text("PRAGMA table_info(invoice_items)"))
+                cols = [row[1] for row in res]
+                if 'is_gift' not in cols:
+                    db.execute(text("ALTER TABLE invoice_items ADD COLUMN is_gift INTEGER DEFAULT 0 NOT NULL"))
+                    db.commit()
+            else:
+                # PostgreSQL
+                result = db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'invoice_items' AND column_name = 'is_gift'"
+                ))
+                if not result.fetchone():
+                    db.execute(text("ALTER TABLE invoice_items ADD COLUMN is_gift BOOLEAN DEFAULT FALSE NOT NULL"))
+                    db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            _invoice_item_is_gift_checked = True
+
+def _ensure_invoice_client_nullable(db) -> None:
+    """Rend la colonne invoices.client_id nullable pour permettre les ventes flash sans client."""
+    global _invoice_client_nullable_checked
+    if _invoice_client_nullable_checked:
+        return
+    with _invoice_client_nullable_lock:
+        if _invoice_client_nullable_checked:
+            return
+        try:
+            bind = db.get_bind()
+            dialect = bind.dialect.name
+            if dialect == 'sqlite':
+                # SQLite ne supporte pas ALTER COLUMN, la colonne est déjà nullable par défaut
+                pass
+            else:
+                # PostgreSQL
+                db.execute(text("ALTER TABLE invoices ALTER COLUMN client_id DROP NOT NULL"))
+                db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            _invoice_client_nullable_checked = True
+
+def _ensure_exchange_item_price_column(db) -> None:
+    """Ajoute la colonne invoice_exchange_items.price si absente (migration légère sans Alembic)."""
+    global _exchange_item_price_checked
+    if _exchange_item_price_checked:
+        return
+    with _exchange_item_price_lock:
+        if _exchange_item_price_checked:
+            return
+        try:
+            bind = db.get_bind()
+            dialect = bind.dialect.name
+            if dialect == 'sqlite':
+                res = db.execute(text("PRAGMA table_info(invoice_exchange_items)"))
+                cols = [row[1] for row in res]
+                if 'price' not in cols:
+                    db.execute(text("ALTER TABLE invoice_exchange_items ADD COLUMN price NUMERIC(10, 2)"))
+                    db.commit()
+            else:
+                # PostgreSQL
+                result = db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'invoice_exchange_items' AND column_name = 'price'"
+                ))
+                if not result.fetchone():
+                    db.execute(text("ALTER TABLE invoice_exchange_items ADD COLUMN price NUMERIC(10, 2)"))
+                    db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            _exchange_item_price_checked = True
+
+def _ensure_invoice_exchange_discount_column(db) -> None:
+    """Ajoute la colonne invoices.exchange_discount si absente (migration légère sans Alembic)."""
+    global _invoice_exchange_discount_checked
+    if _invoice_exchange_discount_checked:
+        return
+    with _invoice_exchange_discount_lock:
+        if _invoice_exchange_discount_checked:
+            return
+        try:
+            bind = db.get_bind()
+            dialect = bind.dialect.name
+            if dialect == 'sqlite':
+                res = db.execute(text("PRAGMA table_info(invoices)"))
+                cols = [row[1] for row in res]
+                if 'exchange_discount' not in cols:
+                    db.execute(text("ALTER TABLE invoices ADD COLUMN exchange_discount NUMERIC(12, 2) DEFAULT 0"))
+                    db.commit()
+            else:
+                # PostgreSQL
+                result = db.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'invoices' AND column_name = 'exchange_discount'"
+                ))
+                if not result.fetchone():
+                    db.execute(text("ALTER TABLE invoices ADD COLUMN exchange_discount NUMERIC(12, 2) DEFAULT 0"))
+                    db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            _invoice_exchange_discount_checked = True
+
 # Fonction pour obtenir une session de base de données
 def get_db():
     db = SessionLocal()
     try:
+        try:
+            _ensure_variant_price_column(db)
+        except Exception:
+            pass
+        try:
+            _ensure_variant_quantity_column(db)
+        except Exception:
+            pass
+        try:
+            _ensure_product_source_column(db)
+        except Exception:
+            pass
+        try:
+            _ensure_invoice_item_is_gift_column(db)
+        except Exception:
+            pass
+        try:
+            _ensure_invoice_client_nullable(db)
+        except Exception:
+            pass
+        try:
+            _ensure_exchange_item_price_column(db)
+        except Exception:
+            pass
+        try:
+            _ensure_invoice_exchange_discount_column(db)
+        except Exception:
+            pass
         yield db
     finally:
         # Defensive close: if the server terminated the connection (e.g.,

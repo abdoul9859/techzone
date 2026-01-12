@@ -27,6 +27,7 @@ from ..auth import get_current_user
 from ..routers.stock_movements import create_stock_movement
 from ..services.stats_manager import recompute_invoices_stats
 from ..services.google_sheets_sync_helper import sync_product_stock_to_sheets
+from ..routers.dashboard import invalidate_dashboard_cache
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import logging
@@ -112,8 +113,8 @@ async def list_invoices(
     current_user = Depends(get_current_user)
 ):
     """Lister les factures avec filtres"""
-    # Utiliser un JOIN avec la table des clients pour récupérer le nom du client
-    query = db.query(Invoice, Client.name.label('client_name')).join(Client, Invoice.client_id == Client.client_id).order_by(desc(Invoice.created_at))
+    # Utiliser un LEFT JOIN pour inclure les factures sans client (ventes flash)
+    query = db.query(Invoice, Client.name.label('client_name')).outerjoin(Client, Invoice.client_id == Client.client_id).order_by(desc(Invoice.created_at))
     
     if status_filter:
         query = query.filter(Invoice.status == status_filter)
@@ -132,11 +133,13 @@ async def list_invoices(
     # Construire la réponse avec le nom du client
     invoices = []
     for invoice, client_name in results:
+        # Si pas de client (vente flash), utiliser "Vente Flash"
+        display_client_name = client_name if client_name else ("Vente Flash" if invoice.invoice_type == 'flash_sale' else "Client inconnu")
         invoice_dict = {
             "invoice_id": invoice.invoice_id,
             "invoice_number": invoice.invoice_number,
             "client_id": invoice.client_id,
-            "client_name": client_name,  # Ajouter le nom du client
+            "client_name": display_client_name,
             "quotation_id": invoice.quotation_id,
             "date": invoice.date,
             "due_date": invoice.due_date,
@@ -293,6 +296,7 @@ async def list_invoices_paginated(
         result_invoices.append({
             "invoice_id": inv.invoice_id,
             "invoice_number": inv.invoice_number,
+            "invoice_type": inv.invoice_type or "normal",
             "client_id": inv.client_id,
             "client_name": client_name or "",
             "quotation_id": inv.quotation_id,
@@ -346,13 +350,17 @@ async def get_invoice(
 
     client_name = None
     client_phone = None
-    try:
-        client_data = db.query(Client.name, Client.phone).filter(Client.client_id == invoice.client_id).first()
-        if client_data:
-            client_name = client_data.name
-            client_phone = client_data.phone
-    except Exception:
-        client_name = None
+    if invoice.client_id:
+        try:
+            client_data = db.query(Client.name, Client.phone).filter(Client.client_id == invoice.client_id).first()
+            if client_data:
+                client_name = client_data.name
+                client_phone = client_data.phone
+        except Exception:
+            client_name = None
+            client_phone = None
+    else:
+        client_name = "Vente Flash"
         client_phone = None
 
     return {
@@ -370,6 +378,7 @@ async def get_invoice(
         "tax_rate": float(invoice.tax_rate or 0),
         "tax_amount": float(invoice.tax_amount or 0),
         "total": float(invoice.total or 0),
+        "exchange_discount": float(getattr(invoice, 'exchange_discount', 0) or 0),
         "paid_amount": float(invoice.paid_amount or 0),
         "remaining_amount": float(invoice.remaining_amount or 0),
         "show_tax": bool(invoice.show_tax),
@@ -399,6 +408,7 @@ async def get_invoice(
                 "product_id": ex.product_id,
                 "product_name": ex.product_name,
                 "quantity": ex.quantity,
+                "price": float(ex.price) if ex.price is not None else None,
                 "variant_id": ex.variant_id,
                 "variant_imei": ex.variant_imei,
                 "notes": ex.notes
@@ -425,10 +435,14 @@ async def create_invoice(
     - Si le numéro est vide ou déjà utilisé, génère automatiquement le prochain numéro disponible (FAC-####).
     """
     try:
-        # Vérifier que le client existe
-        client = db.query(Client).filter(Client.client_id == invoice_data.client_id).first()
-        if not client:
-            raise HTTPException(status_code=404, detail="Client non trouvé")
+        # Vérifier que le client existe (sauf pour les ventes flash)
+        client = None
+        if invoice_data.client_id:
+            client = db.query(Client).filter(Client.client_id == invoice_data.client_id).first()
+            if not client:
+                raise HTTPException(status_code=404, detail="Client non trouvé")
+        elif invoice_data.invoice_type != 'flash_sale':
+            raise HTTPException(status_code=400, detail="Client requis pour ce type de facture")
         
         # Déterminer le numéro final (tolère vide/auto/duplicate)
         requested_number = (str(invoice_data.invoice_number or '').strip())
@@ -479,6 +493,10 @@ async def create_invoice(
         
         db.add(db_invoice)
         db.flush()  # Pour obtenir l'ID de la facture
+
+        # Si on applique des prix de variantes, on recalcule les totaux facture pour figer les montants réels
+        should_recompute_totals = False
+        computed_items_subtotal = 0
         
         # Créer les éléments de facture et gérer le stock
         # Log pour déboguer
@@ -486,6 +504,7 @@ async def create_invoice(
             logging.info(f"Item {i}: product_name={item_data.product_name}, external_price={getattr(item_data, 'external_price', 'N/A')}")
         
         for item_data in invoice_data.items:
+            resolved_variant = None
             # Lignes personnalisées sans produit: pas d'impact stock
             if not getattr(item_data, 'product_id', None):
                 # Ensure custom line name respects DB length
@@ -521,10 +540,15 @@ async def create_invoice(
                     quantity=item_data.quantity,
                     price=item_data.price,
                     total=item_data.total,
+                    is_gift=getattr(item_data, 'is_gift', False),
                     external_price=external_price_decimal,
                     external_profit=external_profit
                 )
                 db.add(db_item)
+                try:
+                    computed_items_subtotal += float(db_item.total or 0)
+                except Exception:
+                    pass
                 continue
 
             # Vérifier que le produit existe
@@ -557,15 +581,30 @@ async def create_invoice(
                 # Valider l'appartenance et la disponibilité de la variante
                 if resolved_variant.product_id != product.product_id:
                     raise HTTPException(status_code=400, detail="Variante n'appartient pas au produit")
-                if bool(resolved_variant.is_sold):
-                    raise HTTPException(status_code=400, detail=f"La variante {resolved_variant.imei_serial} est déjà vendue")
+                
+                # Vérifier disponibilité selon le mode de gestion stock
+                variant_qty = getattr(resolved_variant, 'quantity', None)
+                if variant_qty is not None:
+                    # Mode quantité: vérifier stock disponible
+                    if variant_qty <= 0:
+                        raise HTTPException(status_code=400, detail=f"Stock insuffisant pour la variante {resolved_variant.imei_serial}")
+                    # Accepter quantity demandée <= variant.quantity
+                    if int(item_data.quantity or 0) > variant_qty:
+                        raise HTTPException(status_code=400, detail=f"Quantité demandée ({item_data.quantity}) supérieure au stock disponible ({variant_qty})")
+                else:
+                    # Mode is_sold (rétrocompat): vérifier si déjà vendue
+                    if bool(resolved_variant.is_sold):
+                        raise HTTPException(status_code=400, detail=f"La variante {resolved_variant.imei_serial} est déjà vendue")
+                    # Forcer quantité = 1 pour une ligne de variante sans quantity
+                    if int(item_data.quantity or 0) != 1:
+                        raise HTTPException(status_code=400, detail="Pour un produit avec variantes (sans quantité), la quantité doit être 1 par ligne de variante")
 
-                # Forcer quantité = 1 pour une ligne de variante
-                if int(item_data.quantity or 0) != 1:
-                    raise HTTPException(status_code=400, detail="Pour un produit avec variantes, la quantité doit être 1 par ligne de variante")
-
-                # Marquer la variante comme vendue
-                resolved_variant.is_sold = True
+                # Décrémenter le stock de la variante
+                if variant_qty is not None:
+                    resolved_variant.quantity = variant_qty - int(item_data.quantity or 0)
+                else:
+                    # Mode is_sold (rétrocompat)
+                    resolved_variant.is_sold = True
             else:
                 # Produits sans variantes: vérifier stock disponible agrégé
                 if (product.quantity or 0) < item_data.quantity:
@@ -574,12 +613,25 @@ async def create_invoice(
             # Créer l'élément de facture
             # Ensure product_name respects DB length (String(100))
             safe_name = (item_data.product_name or product.name)[:100]
+
+            # Appliquer le prix de variante si défini (option A: figer dans InvoiceItem)
+            from decimal import Decimal
+            unit_price_dec = Decimal(str(item_data.price))
+            if has_variants and resolved_variant is not None:
+                try:
+                    v_price = getattr(resolved_variant, 'price', None)
+                    if v_price is not None and Decimal(str(v_price)) > Decimal('0'):
+                        unit_price_dec = Decimal(str(v_price))
+                        should_recompute_totals = True
+                except Exception:
+                    pass
+            qty_dec = Decimal(str(item_data.quantity or 0))
+            line_total_dec = unit_price_dec * qty_dec
             # Calculer le bénéfice externe si le prix externe est fourni
             external_price = getattr(item_data, 'external_price', None)
             # Debug: logger le prix externe reçu
             logging.debug(f"Item produit {product.name} - external_price reçu: {external_price} (type: {type(external_price)})")
             # Convertir en Decimal si présent, sinon None
-            from decimal import Decimal
             external_price_decimal = None
             if external_price is not None:
                 try:
@@ -596,7 +648,7 @@ async def create_invoice(
             
             external_profit = None
             if external_price_decimal is not None:
-                external_profit = Decimal(str(item_data.total)) - (external_price_decimal * Decimal(str(item_data.quantity)))
+                external_profit = line_total_dec - (external_price_decimal * qty_dec)
                 logging.debug(f"Bénéfice calculé pour {product.name}: {external_profit}")
             
             db_item = InvoiceItem(
@@ -604,15 +656,23 @@ async def create_invoice(
                 product_id=item_data.product_id,
                 product_name=safe_name,
                 quantity=item_data.quantity,
-                price=item_data.price,
-                total=item_data.total,
+                price=unit_price_dec,
+                total=line_total_dec,
                 external_price=external_price_decimal,
                 external_profit=external_profit
             )
             db.add(db_item)
+
+            try:
+                computed_items_subtotal += float(db_item.total or 0)
+            except Exception:
+                pass
             
-            # Mettre à jour le stock et créer un mouvement
-            product.quantity = (product.quantity or 0) - item_data.quantity
+            # Mettre à jour le stock produit
+            # Pour les variantes avec quantity, le stock produit sera recalculé après commit
+            # Pour les autres cas, décrémenter directement
+            if not has_variants:
+                product.quantity = (product.quantity or 0) - item_data.quantity
             try:
                 create_stock_movement(
                     db=db,
@@ -622,7 +682,7 @@ async def create_invoice(
                     reference_type="INVOICE",
                     reference_id=db_invoice.invoice_id,
                     notes=f"Vente - Facture {final_number}",
-                    unit_price=float(item_data.price)
+                    unit_price=float(unit_price_dec)
                 )
             except Exception:
                 # Ne pas bloquer la création de facture si l'enregistrement du mouvement échoue
@@ -643,14 +703,46 @@ async def create_invoice(
             # Traiter les produits échangés (sortants - ceux que le client donne)
             for exchange_item in exchange_items:
                 exchange_product = None
-                if exchange_item.product_id:
+                actual_product_id = exchange_item.product_id
+                
+                # Si c'est un article personnalisé (product_id=null), créer un nouveau produit avec source='exchange'
+                if not exchange_item.product_id and exchange_item.product_name:
+                    from decimal import Decimal
+                    # Utiliser le prix fourni ou 0 par défaut
+                    exchange_price = getattr(exchange_item, 'price', None)
+                    if exchange_price is None:
+                        exchange_price = Decimal("0")
+                    else:
+                        exchange_price = Decimal(str(exchange_price))
+                    
+                    new_exchange_product = Product(
+                        name=exchange_item.product_name[:500],
+                        description=getattr(exchange_item, 'notes', None),
+                        quantity=exchange_item.quantity,
+                        price=exchange_price,
+                        purchase_price=Decimal("0"),
+                        category='Divers',
+                        condition='occasion',  # Par défaut occasion pour les échanges
+                        source='exchange',  # Marquer comme provenant d'un échange
+                        has_unique_serial=False,
+                        entry_date=invoice_data.date
+                    )
+                    db.add(new_exchange_product)
+                    db.flush()
+                    exchange_product = new_exchange_product
+                    actual_product_id = new_exchange_product.product_id
+                elif exchange_item.product_id:
                     exchange_product = db.query(Product).filter(Product.product_id == exchange_item.product_id).first()
+                    # Marquer le produit existant comme provenant d'un échange si pas déjà marqué
+                    if exchange_product and not getattr(exchange_product, 'source', None):
+                        exchange_product.source = 'exchange'
                 
                 db_exchange_item = InvoiceExchangeItem(
                     invoice_id=db_invoice.invoice_id,
-                    product_id=exchange_item.product_id,
+                    product_id=actual_product_id,
                     product_name=exchange_item.product_name,
                     quantity=exchange_item.quantity,
+                    price=getattr(exchange_item, 'price', None),
                     variant_id=getattr(exchange_item, 'variant_id', None),
                     variant_imei=getattr(exchange_item, 'variant_imei', None),
                     notes=getattr(exchange_item, 'notes', None)
@@ -660,11 +752,16 @@ async def create_invoice(
                 # Augmenter le stock du produit échangé
                 if exchange_product:
                     if exchange_item.variant_id:
-                        # Pour les variantes, créer une nouvelle variante disponible
+                        # Pour les variantes, réactiver ou incrémenter quantity
                         variant = db.query(ProductVariant).filter(ProductVariant.variant_id == exchange_item.variant_id).first()
                         if variant:
-                            # Réactiver la variante si elle était vendue
-                            variant.is_sold = False
+                            variant_qty = getattr(variant, 'quantity', None)
+                            if variant_qty is not None:
+                                # Mode quantité: incrémenter
+                                variant.quantity = variant_qty + exchange_item.quantity
+                            else:
+                                # Mode is_sold: réactiver
+                                variant.is_sold = False
                     else:
                         # Produit sans variantes: augmenter la quantité
                         exchange_product.quantity = (exchange_product.quantity or 0) + exchange_item.quantity
@@ -682,6 +779,21 @@ async def create_invoice(
                         )
                     except Exception:
                         pass
+            
+            # Calculer le total de reprise et l'appliquer à la facture
+            exchange_total = 0
+            for ex_item in db.query(InvoiceExchangeItem).filter(InvoiceExchangeItem.invoice_id == db_invoice.invoice_id).all():
+                if ex_item.price:
+                    exchange_total += float(ex_item.price) * ex_item.quantity
+            
+            if exchange_total > 0:
+                from decimal import Decimal
+                exchange_discount = Decimal(str(exchange_total))
+                db_invoice.exchange_discount = exchange_discount
+                # Soustraire le montant de reprise du total
+                db_invoice.total = db_invoice.total - exchange_discount
+                db_invoice.subtotal = db_invoice.subtotal - exchange_discount
+                db_invoice.remaining_amount = db_invoice.total - db_invoice.paid_amount
             
             # Traiter les produits entrants (ceux qu'on donne au client) - créer nouveaux produits si nécessaire
             for item_data in invoice_data.items:
@@ -727,8 +839,56 @@ async def create_invoice(
                     if db_item:
                         db_item.product_id = new_product.product_id
         
+        # Recalculer totaux facture si des prix variantes ont été appliqués
+        if should_recompute_totals:
+            try:
+                from decimal import Decimal
+                subtotal_dec = Decimal(str(computed_items_subtotal or 0))
+                tax_rate_dec = Decimal(str(db_invoice.tax_rate or 0))
+                tax_amount_dec = Decimal('0')
+                if bool(db_invoice.show_tax):
+                    tax_amount_dec = (subtotal_dec * tax_rate_dec) / Decimal('100')
+                total_dec = subtotal_dec + tax_amount_dec
+                db_invoice.subtotal = subtotal_dec
+                db_invoice.tax_amount = tax_amount_dec
+                db_invoice.total = total_dec
+                # Au moment de création: paid_amount est 0 → remaining = total
+                db_invoice.remaining_amount = total_dec
+            except Exception:
+                pass
+
         db.commit()
         db.refresh(db_invoice)
+        
+        # Recalculer product.quantity pour les produits avec variantes (mode quantity)
+        try:
+            affected_product_ids = set()
+            for item_data in invoice_data.items:
+                if getattr(item_data, 'product_id', None):
+                    product = db.query(Product).filter(Product.product_id == item_data.product_id).first()
+                    if product:
+                        has_variants = db.query(ProductVariant.variant_id).filter(ProductVariant.product_id == product.product_id).first() is not None
+                        if has_variants and product.product_id not in affected_product_ids:
+                            # Recalculer quantity comme somme des variant.quantity
+                            total_qty = 0
+                            for db_v in db.query(ProductVariant).filter(ProductVariant.product_id == product.product_id).all():
+                                vq = getattr(db_v, 'quantity', None)
+                                if vq is not None and vq > 0:
+                                    total_qty += vq
+                                elif vq is None and not db_v.is_sold:
+                                    # Variante sans quantity: compter 1 si non vendue (rétrocompat)
+                                    total_qty += 1
+                            product.quantity = total_qty
+                            affected_product_ids.add(product.product_id)
+            db.commit()
+        except Exception:
+            pass  # Non bloquant
+        
+        # Invalider le cache du dashboard après création/modification de facture
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass  # Non bloquant
         
         # Créer automatiquement les ventes quotidiennes pour chaque produit de la facture
         try:
@@ -779,7 +939,7 @@ async def create_invoice(
 
                     daily_sale = DailySale(
                         client_id=invoice_data.client_id,
-                        client_name=client.name,
+                        client_name=client.name if client else 'Vente Flash',
                         product_id=item_data.product_id,
                         product_name=item_data.product_name or product.name,
                         variant_id=variant_id_val,
@@ -813,9 +973,12 @@ async def create_invoice(
 
         # Façonner et retourner la réponse complète avec client_name
         try:
-            client_name = db.query(Client.name).filter(Client.client_id == db_invoice.client_id).scalar() or ""
+            if db_invoice.client_id:
+                client_name = db.query(Client.name).filter(Client.client_id == db_invoice.client_id).scalar() or ""
+            else:
+                client_name = "Vente Flash"
         except Exception:
-            client_name = ""
+            client_name = "Vente Flash" if db_invoice.invoice_type == 'flash_sale' else ""
         try:
             _ = db_invoice.items
         except Exception:
@@ -890,10 +1053,14 @@ async def update_invoice(
             raise HTTPException(status_code=404, detail="Facture non trouvée")
 
 
-        # Vérifier que le client existe
-        client = db.query(Client).filter(Client.client_id == invoice_data.client_id).first()
-        if not client:
-            raise HTTPException(status_code=404, detail="Client non trouvé")
+        # Vérifier que le client existe (sauf pour les ventes flash)
+        client = None
+        if invoice_data.client_id:
+            client = db.query(Client).filter(Client.client_id == invoice_data.client_id).first()
+            if not client:
+                raise HTTPException(status_code=404, detail="Client non trouvé")
+        elif invoice_data.invoice_type != 'flash_sale':
+            raise HTTPException(status_code=400, detail="Client requis pour ce type de facture")
 
         # 1) REVERT: restaurer le stock des anciens items et réactiver variantes
         #   a) Restaurer le stock pour chaque item produit
@@ -1136,6 +1303,7 @@ async def update_invoice(
                 except (ValueError, TypeError):
                     external_price_decimal = None
             
+            # Calculer le bénéfice externe
             external_profit = None
             if external_price_decimal is not None:
                 external_profit = Decimal(str(item_data.total)) - (external_price_decimal * Decimal(str(item_data.quantity)))
@@ -1147,11 +1315,12 @@ async def update_invoice(
                 quantity=item_data.quantity,
                 price=item_data.price,
                 total=item_data.total,
+                is_gift=getattr(item_data, 'is_gift', False),
                 external_price=external_price_decimal,
                 external_profit=external_profit
             )
             db.add(db_item)
-
+            
             # Appliquer le stock et enregistrer le mouvement OUT
             product.quantity = (product.quantity or 0) - int(item_data.quantity or 0)
             try:
@@ -1233,7 +1402,7 @@ async def update_invoice(
 
                 daily_sale = DailySale(
                     client_id=invoice.client_id,
-                    client_name=client.name,
+                    client_name=client.name if client else 'Vente Flash',
                     product_id=item_data.product_id,
                     product_name=item_data.product_name or product.name,
                     variant_id=variant_id_val,
@@ -1256,6 +1425,12 @@ async def update_invoice(
         db.commit()
         db.refresh(invoice)
 
+        # Invalider le cache du dashboard après mise à jour de facture
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass  # Non bloquant
+
         # Clear invoices cache after update to ensure fresh data on next load
         _invoices_cache.clear()
 
@@ -1266,9 +1441,12 @@ async def update_invoice(
 
         # Façonner la réponse complète avec client_name pour respecter InvoiceResponse
         try:
-            client_name = db.query(Client.name).filter(Client.client_id == invoice.client_id).scalar() or ""
+            if invoice.client_id:
+                client_name = db.query(Client.name).filter(Client.client_id == invoice.client_id).scalar() or ""
+            else:
+                client_name = "Vente Flash"
         except Exception:
-            client_name = ""
+            client_name = "Vente Flash" if invoice.invoice_type == 'flash_sale' else ""
         try:
             _ = invoice.items
         except Exception:
@@ -1339,6 +1517,12 @@ async def update_invoice_status(
         
         invoice.status = status
         db.commit()
+        
+        # Invalider le cache du dashboard après changement de statut
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass  # Non bloquant
         
         # Clear invoices cache after status update to ensure fresh data on next load
         _invoices_cache.clear()
@@ -1441,6 +1625,12 @@ async def add_payment(
         
         db.commit()
         db.refresh(payment)
+        
+        # Invalider le cache du dashboard après paiement
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass  # Non bloquant
         
         # Clear invoices cache after payment to ensure fresh data on next load
         _invoices_cache.clear()

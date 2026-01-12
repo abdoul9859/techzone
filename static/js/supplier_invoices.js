@@ -98,19 +98,19 @@ async function loadSuppliers() {
     }
 }
 
-// Charger et appliquer les m1thodes de paiement configur2es pour les factures fournisseurs
+// Charger et appliquer les méthodes de paiement configurées pour les factures fournisseurs
 async function populateSupplierPaymentMethods(selectFirst = false) {
     try {
         let methods = await apiStorage.getInvoicePaymentMethods();
         if (!Array.isArray(methods)) methods = [];
         methods = methods.map(v => String(v || '').trim()).filter(v => v.length);
-        if (!methods.length) methods = ["Esp2ces", "Virement bancaire", "Mobile Money", "Ch1que", "Carte bancaire"]; // fallback
+        if (!methods.length) methods = ["Espèces", "Virement bancaire", "Mobile Money", "Chèque", "Carte bancaire"]; // fallback
 
         const sel = document.getElementById('paymentMethodSelect');
         if (!sel) return;
 
         const opts = [];
-        opts.push('<option value="">S1lectionner</option>');
+        opts.push('<option value="">Sélectionner</option>');
         methods.forEach(label => {
             const value = label;
             opts.push(`<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`);
@@ -121,7 +121,7 @@ async function populateSupplierPaymentMethods(selectFirst = false) {
             sel.value = methods[0];
         }
     } catch (e) {
-        console.warn('Impossible de charger les m1thodes de paiement fournisseurs configur2es:', e);
+        console.warn('Impossible de charger les méthodes de paiement fournisseurs configurées:', e);
     }
 }
 
@@ -131,24 +131,18 @@ function setupSupplierSearch() {
     const searchResults = document.getElementById('supplierSearchResults');
     
     if (!searchInput) return;
-    
-    // Recherche en temps réel
-    searchInput.addEventListener('input', debounce(function(e) {
-        const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
-        const searchTerm = inputVal.toLowerCase().trim();
-        
-        if (searchTerm.length < 2) {
-            searchResults.style.display = 'none';
-            return;
-        }
-        
+
+    function renderSupplierResults(searchTerm) {
+        const term = String(searchTerm || '').toLowerCase().trim();
+
         const filteredSuppliers = suppliers.filter(supplier => {
+            if (!term) return true;
             const name = supplier.name || '';
             const contact = supplier.contact || '';
-            return name.toLowerCase().includes(searchTerm) ||
-                   contact.toLowerCase().includes(searchTerm);
+            return name.toLowerCase().includes(term) ||
+                   contact.toLowerCase().includes(term);
         });
-        
+
         if (filteredSuppliers.length === 0) {
             searchResults.innerHTML = `
                 <button type="button" class="list-group-item list-group-item-action text-center text-muted">
@@ -170,9 +164,29 @@ function setupSupplierSearch() {
                 </button>
             `).join('');
         }
-        
+
         searchResults.style.display = 'block';
+    }
+    
+    // Recherche en temps réel
+    searchInput.addEventListener('input', debounce(function(e) {
+        const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
+        const searchTerm = inputVal.toLowerCase().trim();
+
+        // Si l'utilisateur retape, la sélection précédente ne doit plus être considérée valide
+        const supplierIdInput = document.getElementById('supplierId');
+        if (supplierIdInput) supplierIdInput.value = '';
+
+        renderSupplierResults(searchTerm);
     }, 300));
+
+    // Ouvrir les résultats dès le focus/clic, même sans saisie
+    function openDropdown() {
+        renderSupplierResults(searchInput.value);
+    }
+
+    searchInput.addEventListener('focus', openDropdown);
+    searchInput.addEventListener('click', openDropdown);
     
     // Fermer les résultats quand on clique ailleurs
     document.addEventListener('click', function(e) {
@@ -183,6 +197,13 @@ function setupSupplierSearch() {
     
     // Gérer la sélection avec le clavier
     searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            searchResults.style.display = 'none';
+            return;
+        }
+
+        if (searchResults.style.display === 'none') return;
+
         const items = searchResults.querySelectorAll('.list-group-item');
         const activeItem = searchResults.querySelector('.list-group-item.active');
         let currentIndex = Array.from(items).indexOf(activeItem);
@@ -417,15 +438,15 @@ function openInvoiceModal(invoiceId = null) {
     if (invoiceId) {
         title.textContent = 'Modifier la facture';
         saveBtn.textContent = 'Mettre à jour';
-        loadInvoiceForEdit(invoiceId);
+        // Charger les données après l'affichage du modal
+        modal.show();
+        setTimeout(() => loadInvoiceForEdit(invoiceId), 100);
     } else {
         title.textContent = 'Nouvelle facture fournisseur';
         saveBtn.textContent = 'Enregistrer';
         resetInvoiceForm();
-        // plus d'items à ajouter dans le mode 'suivi dettes'
+        modal.show();
     }
-    
-    modal.show();
 }
 
 // Réinitialiser le formulaire de facture
@@ -437,29 +458,119 @@ function resetInvoiceForm() {
         field.classList.remove('is-valid', 'is-invalid');
     });
     
-    // Réinitialiser les champs spécifiques du formulaire simplifié
-    const supplierSearch = document.getElementById('supplierSearch');
-    const supplierId = document.getElementById('supplierId');
-    const pdfFile = document.getElementById('pdfFile');
+    // Réinitialiser les champs
+    document.getElementById('supplierSearch').value = '';
+    document.getElementById('supplierId').value = '';
+    document.getElementById('invoiceNumber').value = '';
+    // Date facture: aujourd'hui
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    document.getElementById('invoiceDate').value = todayStr;
+
+    // Date d'échéance: +1 mois par défaut
+    const due = new Date(today);
+    due.setMonth(due.getMonth() + 1);
+    const dueStr = due.toISOString().slice(0, 10);
+    document.getElementById('dueDate').value = dueStr;
+    document.getElementById('totalAmount').value = '';
+    document.getElementById('invoiceNotes').value = '';
+    document.getElementById('invoiceImage').value = '';
+
+    // Total calculé automatiquement depuis les lignes
+    const totalAmountInput = document.getElementById('totalAmount');
+    if (totalAmountInput) {
+        totalAmountInput.readOnly = true;
+        totalAmountInput.classList.add('bg-light');
+        try {
+            totalAmountInput.style.backgroundColor = '#e9ecef';
+            totalAmountInput.style.cursor = 'not-allowed';
+        } catch (e) { /* ignore */ }
+    }
     
-    if (supplierSearch) supplierSearch.value = '';
-    if (supplierId) supplierId.value = '';
-    if (pdfFile) pdfFile.value = '';
+    // Vider le conteneur d'articles
+    document.getElementById('invoiceItemsContainer').innerHTML = '';
 }
 
 // Charger une facture pour édition
 async function loadInvoiceForEdit(invoiceId) {
     try {
+        console.log('Chargement facture ID:', invoiceId);
         const response = await axios.get(`/api/supplier-invoices/${invoiceId}`);
         const invoice = response.data;
+        console.log('Données facture reçues:', invoice);
 
-        // Remplir le fournisseur avec son nom
-        document.getElementById('supplierId').value = invoice.supplier_id;
-        document.getElementById('supplierSearch').value = invoice.supplier_name || '';
+        // Remplir le fournisseur
+        const supplierIdField = document.getElementById('supplierId');
+        const supplierSearchField = document.getElementById('supplierSearch');
+        if (supplierIdField) supplierIdField.value = invoice.supplier_id || '';
+        if (supplierSearchField) supplierSearchField.value = invoice.supplier_name || '';
         
-        // Le formulaire simplifié ne permet plus l'édition des détails
-        // Seul le fournisseur et le PDF sont modifiables
-        console.log('Mode édition non supporté avec le formulaire simplifié');
+        // Remplir les champs de base
+        const invoiceNumberField = document.getElementById('invoiceNumber');
+        if (invoiceNumberField) invoiceNumberField.value = invoice.invoice_number || '';
+        
+        // Dates (format YYYY-MM-DD pour input type="date")
+        if (invoice.invoice_date) {
+            const invoiceDate = new Date(invoice.invoice_date);
+            const invoiceDateField = document.getElementById('invoiceDate');
+            if (invoiceDateField) invoiceDateField.value = invoiceDate.toISOString().slice(0, 10);
+        }
+        if (invoice.due_date) {
+            const dueDate = new Date(invoice.due_date);
+            const dueDateField = document.getElementById('dueDate');
+            if (dueDateField) dueDateField.value = dueDate.toISOString().slice(0, 10);
+        }
+        
+        // Montant total
+        const totalAmountField = document.getElementById('totalAmount');
+        if (totalAmountField) totalAmountField.value = invoice.amount || invoice.total_amount || '';
+        
+        // Notes
+        const notesField = document.getElementById('invoiceNotes');
+        if (notesField) notesField.value = invoice.notes || '';
+        
+        // Charger les articles si disponibles (parse depuis description ou items)
+        const itemsContainer = document.getElementById('invoiceItemsContainer');
+        if (itemsContainer) {
+            itemsContainer.innerHTML = '';
+            
+            // Si la facture a des items structurés, les charger
+            if (invoice.items && Array.isArray(invoice.items) && invoice.items.length > 0) {
+                invoice.items.forEach(item => {
+                    addInvoiceItem();
+                    const lastCard = itemsContainer.lastElementChild;
+                    if (lastCard) {
+                        const descField = lastCard.querySelector('.item-description');
+                        const qtyField = lastCard.querySelector('.item-quantity');
+                        const priceField = lastCard.querySelector('.item-price');
+                        const totalField = lastCard.querySelector('.item-total');
+                        
+                        if (descField) descField.value = item.description || '';
+                        if (qtyField) qtyField.value = item.quantity || 1;
+                        if (priceField) priceField.value = item.unit_price || 0;
+                        if (totalField) {
+                            // Calculer le total pour cet item
+                            const qty = parseFloat(qtyField?.value || 0);
+                            const price = parseFloat(priceField?.value || 0);
+                            totalField.value = (qty * price).toFixed(0);
+                        }
+                    }
+                });
+                
+                // Recalculer le total de la facture après avoir chargé tous les articles
+                const totalAmountInput = document.getElementById('totalAmount');
+                if (totalAmountInput) {
+                    const itemTotals = Array.from(document.querySelectorAll('#invoiceItemsContainer .item-total'));
+                    const sum = itemTotals.reduce((acc, el) => {
+                        const n = parseFloat(el.value);
+                        return acc + (Number.isFinite(n) ? n : 0);
+                    }, 0);
+                    totalAmountInput.value = sum > 0 ? String(Math.floor(sum)) : '';
+                }
+            }
+        }
+        
+        console.log('Champs remplis avec succès');
     } catch (error) {
         console.error('Erreur lors du chargement de la facture:', error);
         showError('Erreur lors du chargement de la facture');
@@ -467,12 +578,103 @@ async function loadInvoiceForEdit(invoiceId) {
 }
 
 // Ajouter un élément de facture
-// Fonction de gestion des items supprimée dans le mode dettes fournisseur. Rien à faire ici.
+function addInvoiceItem() {
+    const container = document.getElementById('invoiceItemsContainer');
+    const itemIndex = container.children.length;
+    
+    const itemHtml = `
+        <div class="card mb-2" data-item-index="${itemIndex}">
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-5">
+                        <label class="form-label small">Désignation *</label>
+                        <input type="text" class="form-control form-control-sm item-description" placeholder="Description de l'article" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">Quantité *</label>
+                        <input type="number" class="form-control form-control-sm item-quantity" step="1" min="1" value="1" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">Prix unitaire (FCFA) *</label>
+                        <input type="number" class="form-control form-control-sm item-price" step="1" min="0" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small">Total (FCFA)</label>
+                        <input type="number" class="form-control form-control-sm item-total" readonly>
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <button type="button" class="btn btn-sm btn-danger" onclick="removeInvoiceItem(this)">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.insertAdjacentHTML('beforeend', itemHtml);
+    
+    // Ajouter les écouteurs pour calculer le total automatiquement
+    const newItem = container.lastElementChild;
+    const quantityInput = newItem.querySelector('.item-quantity');
+    const priceInput = newItem.querySelector('.item-price');
+    const totalInput = newItem.querySelector('.item-total');
+
+    const updateInvoiceTotalFromItems = () => {
+        const totalAmountInput = document.getElementById('totalAmount');
+        if (!totalAmountInput) return;
+
+        const itemTotals = Array.from(document.querySelectorAll('#invoiceItemsContainer .item-total'));
+        const sum = itemTotals.reduce((acc, el) => {
+            const n = parseFloat(el.value);
+            return acc + (Number.isFinite(n) ? n : 0);
+        }, 0);
+        totalAmountInput.value = sum > 0 ? String(Math.floor(sum)) : '';
+
+        // Si le total est recalculé, enlever l'état invalide éventuel
+        if (sum > 0) {
+            totalAmountInput.classList.remove('is-invalid');
+        }
+    };
+
+    const calculateItemTotal = () => {
+        const quantity = parseFloat(quantityInput.value) || 0;
+        const price = parseFloat(priceInput.value) || 0;
+        totalInput.value = (quantity * price).toFixed(0);
+        updateInvoiceTotalFromItems();
+    };
+
+    quantityInput.addEventListener('input', calculateItemTotal);
+    priceInput.addEventListener('input', calculateItemTotal);
+
+    // Forcer le champ total en lecture seule (calculé automatiquement)
+    const totalAmountInput = document.getElementById('totalAmount');
+    if (totalAmountInput) {
+        totalAmountInput.readOnly = true;
+        totalAmountInput.classList.add('bg-light');
+        try {
+            totalAmountInput.style.backgroundColor = '#e9ecef';
+            totalAmountInput.style.cursor = 'not-allowed';
+        } catch (e) { /* ignore */ }
+    }
+
+    // Initialiser le total de la ligne + total facture
+    calculateItemTotal();
+}
 
 // Supprimer un élément de facture
 function removeInvoiceItem(button) {
-    button.closest('tr').remove();
-    calculateTotals();
+    button.closest('.card').remove();
+
+    const totalAmountInput = document.getElementById('totalAmount');
+    if (!totalAmountInput) return;
+
+    const itemTotals = Array.from(document.querySelectorAll('#invoiceItemsContainer .item-total'));
+    const sum = itemTotals.reduce((acc, el) => {
+        const n = parseFloat(el.value);
+        return acc + (Number.isFinite(n) ? n : 0);
+    }, 0);
+    totalAmountInput.value = sum > 0 ? String(Math.floor(sum)) : '';
 }
 
 // Gérer le changement de produit
@@ -534,14 +736,10 @@ async function handleInvoiceFormSubmit(e) {
         const formData = collectInvoiceFormData();
         
         if (currentInvoiceId) {
-            await axios.put(`/api/supplier-invoices/${currentInvoiceId}`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            await axios.put(`/api/supplier-invoices/${currentInvoiceId}`, formData);
             showSuccess('Facture mise à jour avec succès');
         } else {
-            await axios.post('/api/supplier-invoices', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            await axios.post('/api/supplier-invoices', formData);
             showSuccess('Facture créée avec succès');
         }
         
@@ -557,35 +755,59 @@ async function handleInvoiceFormSubmit(e) {
     }
 }
 
-// Valider le formulaire de facture (version simplifiée)
+// Valider le formulaire de facture
 function validateInvoiceForm() {
     const supplierId = document.getElementById('supplierId');
-    const pdfFile = document.getElementById('pdfFile');
+    const invoiceNumber = document.getElementById('invoiceNumber');
+    const invoiceDate = document.getElementById('invoiceDate');
+    const totalAmount = document.getElementById('totalAmount');
+    const supplierSearch = document.getElementById('supplierSearch');
     
     let isValid = true;
 
     // Vérifier le fournisseur
+    if (supplierId && supplierSearch && !supplierId.value) {
+        const typed = (supplierSearch.value || '').trim().toLowerCase();
+        if (typed) {
+            const match = (suppliers || []).find(s => String(s?.name || '').trim().toLowerCase() === typed);
+            if (match && match.supplier_id != null) {
+                supplierId.value = String(match.supplier_id);
+            }
+        }
+    }
     if (!supplierId.value) {
-        supplierId.classList.add('is-invalid');
+        document.getElementById('supplierSearch').classList.add('is-invalid');
         isValid = false;
     } else {
-        supplierId.classList.remove('is-invalid');
+        document.getElementById('supplierSearch').classList.remove('is-invalid');
     }
     
-    // Vérifier le fichier PDF
-    if (!pdfFile.files || pdfFile.files.length === 0) {
-        pdfFile.classList.add('is-invalid');
+    // Vérifier le numéro de facture
+    if (!invoiceNumber.value.trim()) {
+        invoiceNumber.classList.add('is-invalid');
         isValid = false;
     } else {
-        pdfFile.classList.remove('is-invalid');
-        
-        // Vérifier que c'est un PDF
-        const file = pdfFile.files[0];
-        if (file && file.type !== 'application/pdf') {
-            pdfFile.classList.add('is-invalid');
-            showError('Seuls les fichiers PDF sont acceptés');
-            isValid = false;
-        }
+        invoiceNumber.classList.remove('is-invalid');
+    }
+    
+    // Vérifier la date
+    if (!invoiceDate.value) {
+        invoiceDate.classList.add('is-invalid');
+        isValid = false;
+    } else {
+        invoiceDate.classList.remove('is-invalid');
+    }
+    
+    // Vérifier le montant total
+    if (!totalAmount.value || parseFloat(totalAmount.value) <= 0) {
+        totalAmount.classList.add('is-invalid');
+        isValid = false;
+    } else {
+        totalAmount.classList.remove('is-invalid');
+    }
+    
+    if (!isValid) {
+        showError('Veuillez remplir tous les champs obligatoires');
     }
 
     return isValid;
@@ -595,14 +817,49 @@ function validateInvoiceForm() {
 function collectInvoiceFormData() {
     const formData = new FormData();
     
-    // Seulement le fournisseur et le PDF
+    // Informations de base
     formData.append('supplier_id', document.getElementById('supplierId').value);
+    formData.append('invoice_number', document.getElementById('invoiceNumber').value.trim());
+    formData.append('invoice_date', document.getElementById('invoiceDate').value);
+    formData.append('total_amount', document.getElementById('totalAmount').value);
     
-    // Ajouter le fichier PDF (obligatoire)
-    const pdfFile = document.getElementById('pdfFile').files[0];
-    if (pdfFile) {
-        formData.append('pdf_file', pdfFile);
+    // Date d'échéance (optionnelle)
+    const dueDate = document.getElementById('dueDate').value;
+    if (dueDate) {
+        formData.append('due_date', dueDate);
     }
+    
+    // Notes (optionnelles)
+    const notes = document.getElementById('invoiceNotes').value.trim();
+    if (notes) {
+        formData.append('notes', notes);
+    }
+    
+    // Photo de la facture (optionnelle)
+    const imageFile = document.getElementById('invoiceImage').files[0];
+    if (imageFile) {
+        formData.append('invoice_image', imageFile);
+    }
+    
+    // Collecter les articles
+    const items = [];
+    const itemCards = document.querySelectorAll('#invoiceItemsContainer .card');
+    itemCards.forEach((card, index) => {
+        const description = card.querySelector('.item-description').value.trim();
+        const quantity = parseFloat(card.querySelector('.item-quantity').value) || 0;
+        const price = parseFloat(card.querySelector('.item-price').value) || 0;
+        
+        if (description && quantity > 0 && price >= 0) {
+            items.push({
+                description: description,
+                quantity: quantity,
+                unit_price: price,
+                total: quantity * price
+            });
+        }
+    });
+    
+    formData.append('items', JSON.stringify(items));
     
     return formData;
 }

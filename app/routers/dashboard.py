@@ -42,9 +42,16 @@ def _get_cached_or_compute(cache_key, compute_func):
     }
     return result
 
+def invalidate_dashboard_cache():
+    """Fonction publique pour invalider le cache du dashboard"""
+    global _cache
+    _cache.clear()
+    logging.info("Dashboard cache invalidated")
+
 @router.get("/stats")
 async def get_dashboard_stats(
     force_refresh: bool = False,
+    as_of: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -53,7 +60,29 @@ async def get_dashboard_stats(
     en une seule requête avec cache de 30 secondes
     """
     try:
-        cache_key = _get_cache_key("dashboard_stats", date.today().isoformat())
+        base_day = as_of or date.today()
+        # Fallback: si aucune facture sur le mois courant et qu'on n'a pas demandé explicitement une date,
+        # utiliser la date de la dernière facture pour éviter un dashboard entièrement à 0.
+        if as_of is None:
+            try:
+                month_start_probe = datetime(base_day.year, base_day.month, 1)
+                if base_day.month == 12:
+                    month_end_probe = datetime(base_day.year + 1, 1, 1)
+                else:
+                    month_end_probe = datetime(base_day.year, base_day.month + 1, 1)
+                has_month_invoices = (
+                    db.query(func.count(Invoice.invoice_id))
+                    .filter(Invoice.date >= month_start_probe, Invoice.date < month_end_probe)
+                    .scalar()
+                    or 0
+                )
+                if int(has_month_invoices) == 0:
+                    latest_dt = db.query(func.max(Invoice.date)).scalar()
+                    if latest_dt:
+                        base_day = latest_dt.date()
+            except Exception:
+                pass
+        cache_key = _get_cache_key("dashboard_stats", base_day.isoformat())
         
         # Si force_refresh est demandé, vider le cache
         if force_refresh:
@@ -61,230 +90,383 @@ async def get_dashboard_stats(
             _cache.clear()
         
         def compute_stats():
-            today = date.today()
-            now = datetime.now()
-            
-            # Calculs optimisés en une seule session DB
-            
-            # 1. Nombre de produits en stock (pas la somme des quantités)
-            # Un produit est "en stock" s'il a une quantité > 0 OU des variantes disponibles
-            
-            # Sous-requête: variantes disponibles (non vendues) par produit
-            available_variants_sub = (
-                db.query(
-                    ProductVariant.product_id.label('product_id'),
-                    func.sum(case((ProductVariant.is_sold == False, 1), else_=0)).label('available')
+            try:
+                today = base_day
+                # Conserver une référence datetime cohérente avec la date choisie
+                now = datetime.combine(base_day, datetime.now().time())
+                logging.info(f"Computing dashboard stats for {today}")
+
+                # Normaliser les statuts (trim + lower) pour éviter les écarts de casse/espaces
+                invoice_status_norm = func.trim(func.lower(Invoice.status))
+                
+                # Calculs optimisés en une seule session DB
+                
+                # 1. Nombre de produits en stock (pas la somme des quantités)
+                # Un produit est "en stock" s'il a une quantité > 0 OU des variantes disponibles
+                
+                # Sous-requête: variantes disponibles (non vendues) par produit
+                available_variants_sub = (
+                    db.query(
+                        ProductVariant.product_id.label('product_id'),
+                        func.sum(case((ProductVariant.is_sold == False, 1), else_=0)).label('available')
+                    )
+                    .group_by(ProductVariant.product_id)
+                    .subquery()
                 )
-                .group_by(ProductVariant.product_id)
-                .subquery()
-            )
-            
-            # Compter les produits en stock: quantité > 0 OU variantes disponibles > 0
-            total_stock = (
-                db.query(func.count(Product.product_id))
-                .outerjoin(available_variants_sub, available_variants_sub.c.product_id == Product.product_id)
-                .filter(or_(Product.quantity > 0, available_variants_sub.c.available > 0))
-                .scalar()
-                or 0
-            )
-            
-            # 2. Statistiques factures (optimisé avec un seul query par métrique)
-            # Factures en attente
-            pending_statuses = ["en attente", "SENT", "DRAFT", "OVERDUE", "partiellement payée"]
-            pending_invoices = db.query(func.count(Invoice.invoice_id)).filter(
-                Invoice.status.in_(pending_statuses)
-            ).scalar() or 0
-            
-            # Chiffre d'affaires mensuel (factures payées)
-            paid_statuses = ["payée", "PAID"]
-            monthly_revenue_gross = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
-                func.extract('month', Invoice.date) == today.month,
-                func.extract('year', Invoice.date) == today.year,
-                Invoice.status.in_(paid_statuses)
-            ).scalar() or 0
-            
-            # Bénéfice externe mensuel (somme des external_profit des items de factures payées)
-            from app.database import InvoiceItem
-            monthly_external_profit = db.query(func.coalesce(func.sum(InvoiceItem.external_profit), 0)).join(
-                Invoice, InvoiceItem.invoice_id == Invoice.invoice_id
-            ).filter(
-                func.extract('month', Invoice.date) == today.month,
-                func.extract('year', Invoice.date) == today.year,
-                Invoice.status.in_(paid_statuses),
-                InvoiceItem.external_profit.isnot(None)
-            ).scalar() or 0
-            # Achats quotidiens du mois (par date ou created_at)
-            monthly_purchases = db.query(func.coalesce(func.sum(DailyPurchase.amount), 0)).filter(
-                or_(
-                    and_(func.extract('month', DailyPurchase.date) == today.month, func.extract('year', DailyPurchase.date) == today.year),
-                    and_(func.extract('month', DailyPurchase.created_at) == today.month, func.extract('year', DailyPurchase.created_at) == today.year),
+                
+                # Compter les produits en stock: quantité > 0 OU variantes disponibles > 0
+                # Exclure les produits archivés
+                total_stock = (
+                    db.query(func.count(Product.product_id))
+                    .outerjoin(available_variants_sub, available_variants_sub.c.product_id == Product.product_id)
+                    .filter(
+                        Product.is_archived == False,
+                        or_(
+                            Product.quantity > 0, 
+                            func.coalesce(available_variants_sub.c.available, 0) > 0
+                        )
+                    )
+                    .scalar()
+                    or 0
                 )
-            ).scalar() or 0
-            
-            # Paiements aux fournisseurs du mois
-            monthly_supplier_payments = db.query(func.coalesce(func.sum(SupplierInvoice.paid_amount), 0)).filter(
-                func.extract('month', SupplierInvoice.invoice_date) == today.month,
-                func.extract('year', SupplierInvoice.invoice_date) == today.year
-            ).scalar() or 0
-            
-            # Chiffre d'affaires net = revenus - paiements fournisseurs - achats quotidiens du mois
-            monthly_revenue = float(monthly_revenue_gross) - float(monthly_supplier_payments) - float(monthly_purchases)
-            
-            # Montant impayé
-            # Montant impayé robuste (gère imports incohérents)
-            # 1) Essayer via remaining_amount pour les statuts impayés connus
-            unpaid_statuses = [
-                "en attente", "En attente", "EN ATTENTE",
-                "partiellement payée", "partiellement payee", "PARTIELLEMENT PAYEE",
-                "OVERDUE", "en retard", "En retard"
-            ]
-            unpaid_amount = db.query(func.coalesce(func.sum(Invoice.remaining_amount), 0)).filter(
-                or_(Invoice.status.in_(unpaid_statuses), (Invoice.remaining_amount > 0))
-            ).scalar() or 0
-            # 2) Fallback si 0: recalculer comme somme(max(total - paid_amount, 0))
-            if float(unpaid_amount or 0) <= 0:
-                unpaid_amount = db.query(
-                    func.coalesce(func.sum(
-                        func.greatest(func.coalesce(Invoice.total, 0) - func.coalesce(Invoice.paid_amount, 0), 0)
-                    ), 0)
+
+                # Valeur totale du stock (valeur d'achat) = (quantité agrégée + variantes disponibles) * purchase_price
+                # Exclure les produits archivés
+                stock_total_value = (
+                    db.query(
+                        func.coalesce(
+                            func.sum(
+                                (
+                                    func.coalesce(Product.quantity, 0)
+                                    + func.coalesce(available_variants_sub.c.available, 0)
+                                )
+                                * func.coalesce(Product.purchase_price, 0)
+                            ),
+                            0,
+                        )
+                    )
+                    .outerjoin(available_variants_sub, available_variants_sub.c.product_id == Product.product_id)
+                    .filter(Product.is_archived == False)
+                    .scalar()
+                    or 0
+                )
+                
+                # Valeur du stock au prix de vente = (quantité agrégée + variantes disponibles) * price
+                # Exclure les produits archivés
+                stock_sale_value = (
+                    db.query(
+                        func.coalesce(
+                            func.sum(
+                                (
+                                    func.coalesce(Product.quantity, 0)
+                                    + func.coalesce(available_variants_sub.c.available, 0)
+                                )
+                                * func.coalesce(Product.price, 0)
+                            ),
+                            0,
+                        )
+                    )
+                    .outerjoin(available_variants_sub, available_variants_sub.c.product_id == Product.product_id)
+                    .filter(Product.is_archived == False)
+                    .scalar()
+                    or 0
+                )
+                
+                # 2. Statistiques factures (optimisé avec un seul query par métrique)
+                # Factures en attente
+                pending_statuses_norm = [
+                    "en attente",
+                    "sent",
+                    "draft",
+                    "overdue",
+                    "partiellement payée",
+                    "partiellement payee",
+                    "en retard",
+                ]
+                pending_invoices = (
+                    db.query(func.count(Invoice.invoice_id))
+                    .filter(invoice_status_norm.in_(pending_statuses_norm))
+                    .scalar()
+                    or 0
+                )
+                
+                # Chiffre d'affaires mensuel (factures payées)
+                # Utiliser comparaison de dates plutôt que extract pour compatibilité SQLite
+                month_start = datetime(today.year, today.month, 1)
+                if today.month == 12:
+                    month_end = datetime(today.year + 1, 1, 1)
+                else:
+                    month_end = datetime(today.year, today.month + 1, 1)
+                
+                paid_statuses_norm = ["payée", "payee", "paid"]
+                # Calculer le CA en excluant les articles gratuits (is_gift=True)
+                from app.database import InvoiceItem
+                monthly_revenue_gross = (
+                    db.query(func.coalesce(func.sum(InvoiceItem.total), 0))
+                    .join(Invoice, InvoiceItem.invoice_id == Invoice.invoice_id)
+                    .filter(
+                        Invoice.date >= month_start,
+                        Invoice.date < month_end,
+                        invoice_status_norm.in_(paid_statuses_norm),
+                        or_(InvoiceItem.is_gift == False, InvoiceItem.is_gift.is_(None))
+                    )
+                    .scalar()
+                    or 0
+                )
+                
+                # Bénéfice externe mensuel (somme des external_profit des items de factures payées, hors cadeaux)
+                monthly_external_profit = (
+                    db.query(func.coalesce(func.sum(InvoiceItem.external_profit), 0))
+                    .join(Invoice, InvoiceItem.invoice_id == Invoice.invoice_id)
+                    .filter(
+                        Invoice.date >= month_start,
+                        Invoice.date < month_end,
+                        invoice_status_norm.in_(paid_statuses_norm),
+                        InvoiceItem.external_profit.isnot(None),
+                        or_(InvoiceItem.is_gift == False, InvoiceItem.is_gift.is_(None))
+                    )
+                    .scalar()
+                    or 0
+                )
+                # Achats quotidiens du mois (par date ou created_at)
+                try:
+                    monthly_purchases = db.query(func.coalesce(func.sum(DailyPurchase.amount), 0)).filter(
+                        or_(
+                            and_(
+                                DailyPurchase.date >= month_start.date(),
+                                DailyPurchase.date < month_end.date()
+                            ),
+                            and_(
+                                DailyPurchase.created_at >= month_start,
+                                DailyPurchase.created_at < month_end
+                            )
+                        )
+                    ).scalar() or 0
+                except Exception:
+                    monthly_purchases = 0
+                
+                # Paiements aux fournisseurs du mois
+                try:
+                    monthly_supplier_payments = db.query(func.coalesce(func.sum(SupplierInvoice.paid_amount), 0)).filter(
+                        SupplierInvoice.invoice_date >= month_start,
+                        SupplierInvoice.invoice_date < month_end
+                    ).scalar() or 0
+                except Exception:
+                    monthly_supplier_payments = 0
+                
+                # Chiffre d'affaires net = revenus - paiements fournisseurs - achats quotidiens du mois
+                try:
+                    monthly_revenue = float(monthly_revenue_gross or 0) - float(monthly_supplier_payments or 0) - float(monthly_purchases or 0)
+                except (TypeError, ValueError) as e:
+                    logging.warning(f"Erreur calcul monthly_revenue: {e}")
+                    monthly_revenue = 0.0
+                
+                # Montant impayé
+                # Montant impayé robuste (gère imports incohérents)
+                # 1) Essayer via remaining_amount pour les statuts impayés connus
+                unpaid_statuses = [
+                    "en attente", "En attente", "EN ATTENTE",
+                    "partiellement payée", "partiellement payee", "PARTIELLEMENT PAYEE",
+                    "OVERDUE", "en retard", "En retard"
+                ]
+                unpaid_statuses_norm = [
+                    "en attente",
+                    "partiellement payée",
+                    "partiellement payee",
+                    "overdue",
+                    "en retard",
+                ]
+                unpaid_amount = (
+                    db.query(func.coalesce(func.sum(Invoice.remaining_amount), 0))
+                    .filter(or_(invoice_status_norm.in_(unpaid_statuses_norm), (Invoice.remaining_amount > 0)))
+                    .scalar()
+                    or 0
+                )
+                # 2) Fallback si 0: recalculer comme somme(max(total - paid_amount, 0))
+                # SQLite n'a pas greatest, utiliser case pour simuler
+                if float(unpaid_amount or 0) <= 0:
+                    unpaid_amount = db.query(
+                        func.coalesce(func.sum(
+                            case(
+                                (func.coalesce(Invoice.total, 0) - func.coalesce(Invoice.paid_amount, 0) > 0, 
+                                 func.coalesce(Invoice.total, 0) - func.coalesce(Invoice.paid_amount, 0)),
+                                else_=0
+                            )
+                        ), 0)
+                    ).scalar() or 0
+                
+                # 3. KPIs avancés (période 30 jours)
+                since_30 = now - timedelta(days=30)
+                since_90 = now - timedelta(days=90)
+                
+                # Panier moyen (30 jours)
+                paid_invoices_30d = db.query(Invoice).filter(
+                    Invoice.date >= since_30,
+                    invoice_status_norm.in_(paid_statuses_norm),
+                )
+                num_invoices_30d = paid_invoices_30d.count()
+                # Calculer le CA sur 30 jours en excluant les articles gratuits
+                total_revenue_30d_gross = (
+                    db.query(func.coalesce(func.sum(InvoiceItem.total), 0))
+                    .join(Invoice, InvoiceItem.invoice_id == Invoice.invoice_id)
+                    .filter(
+                        Invoice.date >= since_30,
+                        invoice_status_norm.in_(paid_statuses_norm),
+                        or_(InvoiceItem.is_gift == False, InvoiceItem.is_gift.is_(None))
+                    )
+                    .scalar()
+                    or 0
+                )
+                purchases_30d = db.query(func.coalesce(func.sum(DailyPurchase.amount), 0)).filter(
+                    or_(DailyPurchase.date >= since_30.date(), func.date(DailyPurchase.created_at) >= since_30.date())
                 ).scalar() or 0
-            
-            # 3. KPIs avancés (période 30 jours)
-            since_30 = now - timedelta(days=30)
-            since_90 = now - timedelta(days=90)
-            
-            # Panier moyen (30 jours)
-            paid_invoices_30d = db.query(Invoice).filter(
-                Invoice.date >= since_30.date(),
-                Invoice.status.in_(paid_statuses)
-            )
-            num_invoices_30d = paid_invoices_30d.count()
-            total_revenue_30d_gross = db.query(func.coalesce(func.sum(Invoice.total), 0)).filter(
-                Invoice.date >= since_30.date(),
-                Invoice.status.in_(paid_statuses)
-            ).scalar() or 0
-            purchases_30d = db.query(func.coalesce(func.sum(DailyPurchase.amount), 0)).filter(
-                or_(DailyPurchase.date >= since_30.date(), func.date(DailyPurchase.created_at) >= since_30.date())
-            ).scalar() or 0
-            
-            # Paiements aux fournisseurs sur 30 jours
-            supplier_payments_30d = db.query(func.coalesce(func.sum(SupplierInvoicePayment.amount), 0)).filter(
-                SupplierInvoicePayment.payment_date >= since_30.date()
-            ).scalar() or 0
-            
-            # Revenus nets sur 30 jours (déduction achats quotidiens)
-            total_revenue_30d = float(total_revenue_30d_gross) - float(supplier_payments_30d) - float(purchases_30d)
-            avg_ticket = float(total_revenue_30d / num_invoices_30d) if num_invoices_30d > 0 else 0.0
-            
-            # Bénéfice externe sur 30 jours
-            external_profit_30d = db.query(func.coalesce(func.sum(InvoiceItem.external_profit), 0)).join(
-                Invoice, InvoiceItem.invoice_id == Invoice.invoice_id
-            ).filter(
-                Invoice.date >= since_30.date(),
-                Invoice.status.in_(paid_statuses),
-                InvoiceItem.external_profit.isnot(None)
-            ).scalar() or 0
-            
-            # Taux de conversion devis->factures (30 jours)
-            quotes_30d = db.query(func.count(Quotation.quotation_id)).filter(
-                Quotation.date >= since_30.date()
-            ).scalar() or 0
-            
-            converted_quotes_30d = db.query(func.count(func.distinct(Invoice.quotation_id))).filter(
-                Invoice.quotation_id.isnot(None),
-                Invoice.date >= since_30.date()
-            ).scalar() or 0
-            
-            conversion_rate = float((converted_quotes_30d / quotes_30d) * 100) if quotes_30d > 0 else 0.0
-            
-            # Stock critique
-            out_of_stock = db.query(func.count(Product.product_id)).filter(
-                or_(Product.quantity == 0, Product.quantity.is_(None))
-            ).scalar() or 0
-            
-            low_stock = db.query(func.count(Product.product_id)).filter(
-                and_(Product.quantity > 0, Product.quantity <= 3)
-            ).scalar() or 0
-            
-            # Clients actifs (90 jours)
-            active_customers = db.query(func.count(func.distinct(Invoice.client_id))).filter(
-                Invoice.client_id.isnot(None),
-                Invoice.date >= since_90.date()
-            ).scalar() or 0
-            
-            # Top 3 produits par CA (30 jours) - optimisé
-            top_products = db.query(
-                InvoiceItem.product_name,
-                func.coalesce(func.sum(InvoiceItem.total), 0).label("revenue")
-            ).join(
-                Invoice, InvoiceItem.invoice_id == Invoice.invoice_id
-            ).filter(
-                Invoice.date >= since_30.date()
-            ).group_by(
-                InvoiceItem.product_name
-            ).order_by(
-                desc("revenue")
-            ).limit(3).all()
-            
-            top_products_list = [
-                {"name": name or "-", "revenue": float(revenue or 0)}
-                for name, revenue in top_products
-            ]
-            
-            # Répartition paiements (30 jours) - optimisé
-            payment_methods = db.query(
-                InvoicePayment.payment_method,
-                func.coalesce(func.sum(InvoicePayment.amount), 0).label("amount")
-            ).filter(
-                InvoicePayment.payment_date >= since_30.date()
-            ).group_by(
-                InvoicePayment.payment_method
-            ).order_by(
-                desc("amount")
-            ).limit(5).all()
-            
-            payments_breakdown = [
-                {"method": method or "Non spécifié", "amount": float(amount or 0)}
-                for method, amount in payment_methods
-            ]
-            
-            return {
-                # Stats de base
-                "total_stock": int(total_stock),
-                "pending_invoices": int(pending_invoices),
-                "monthly_revenue": float(monthly_revenue),
-                "monthly_revenue_gross": float(monthly_revenue_gross),
-                "monthly_supplier_payments": float(monthly_supplier_payments),
-                "monthly_daily_purchases": float(monthly_purchases),
-                "monthly_external_profit": float(monthly_external_profit),
-                "unpaid_amount": float(unpaid_amount),
                 
-                # KPIs avancés
-                "avg_ticket": avg_ticket,
-                "conversion_rate": conversion_rate,
-                "critical_stock": int(low_stock + out_of_stock),
-                "low_stock": int(low_stock),
-                "out_of_stock": int(out_of_stock),
-                "active_customers": int(active_customers),
+                # Paiements aux fournisseurs sur 30 jours
+                supplier_payments_30d = db.query(func.coalesce(func.sum(SupplierInvoicePayment.amount), 0)).filter(
+                    SupplierInvoicePayment.payment_date >= since_30.date()
+                ).scalar() or 0
                 
-                # Données détaillées
-                "top_products": top_products_list,
-                "payment_methods": payments_breakdown,
+                # Revenus nets sur 30 jours (déduction achats quotidiens)
+                total_revenue_30d = float(total_revenue_30d_gross) - float(supplier_payments_30d) - float(purchases_30d)
+                avg_ticket = float(total_revenue_30d / num_invoices_30d) if num_invoices_30d > 0 else 0.0
                 
-                # Meta
-                "cached_at": datetime.now().isoformat(),
-                "period_days": 30,
-                "purchases_30d": float(purchases_30d),
-                "revenue_30d_gross": float(total_revenue_30d_gross),
-                "supplier_payments_30d": float(supplier_payments_30d),
-                "external_profit_30d": float(external_profit_30d)
-            }
+                # Bénéfice externe sur 30 jours (hors cadeaux)
+                external_profit_30d = (
+                    db.query(func.coalesce(func.sum(InvoiceItem.external_profit), 0))
+                    .join(Invoice, InvoiceItem.invoice_id == Invoice.invoice_id)
+                    .filter(
+                        Invoice.date >= since_30,
+                        invoice_status_norm.in_(paid_statuses_norm),
+                        InvoiceItem.external_profit.isnot(None),
+                        or_(InvoiceItem.is_gift == False, InvoiceItem.is_gift.is_(None))
+                    )
+                    .scalar()
+                    or 0
+                )
+                
+                # Taux de conversion devis->factures (30 jours)
+                quotes_30d = db.query(func.count(Quotation.quotation_id)).filter(
+                    Quotation.date >= since_30
+                ).scalar() or 0
+                
+                converted_quotes_30d = db.query(func.count(func.distinct(Invoice.quotation_id))).filter(
+                    Invoice.quotation_id.isnot(None),
+                    Invoice.date >= since_30
+                ).scalar() or 0
+                
+                conversion_rate = float((converted_quotes_30d / quotes_30d) * 100) if quotes_30d > 0 else 0.0
+                
+                # Stock critique (exclure les produits archivés)
+                out_of_stock = db.query(func.count(Product.product_id)).filter(
+                    Product.is_archived == False,
+                    or_(Product.quantity == 0, Product.quantity.is_(None))
+                ).scalar() or 0
+                
+                low_stock = db.query(func.count(Product.product_id)).filter(
+                    Product.is_archived == False,
+                    and_(Product.quantity > 0, Product.quantity <= 3)
+                ).scalar() or 0
+                
+                # Clients actifs (90 jours)
+                active_customers = db.query(func.count(func.distinct(Invoice.client_id))).filter(
+                    Invoice.client_id.isnot(None),
+                    Invoice.date >= since_90
+                ).scalar() or 0
+                
+                # Top 3 produits par CA (30 jours) - optimisé
+                top_products = db.query(
+                    InvoiceItem.product_name,
+                    func.coalesce(func.sum(InvoiceItem.total), 0).label("revenue")
+                ).join(
+                    Invoice, InvoiceItem.invoice_id == Invoice.invoice_id
+                ).filter(
+                    Invoice.date >= since_30
+                ).group_by(
+                    InvoiceItem.product_name
+                ).order_by(
+                    desc("revenue")
+                ).limit(3).all()
+                
+                top_products_list = [
+                    {"name": name or "-", "revenue": float(revenue or 0)}
+                    for name, revenue in top_products
+                ]
+                
+                # Répartition paiements (30 jours) - optimisé
+                payment_methods = db.query(
+                    InvoicePayment.payment_method,
+                    func.coalesce(func.sum(InvoicePayment.amount), 0).label("amount")
+                ).filter(
+                    InvoicePayment.payment_date >= since_30.date()
+                ).group_by(
+                    InvoicePayment.payment_method
+                ).order_by(
+                    desc("amount")
+                ).limit(5).all()
+                
+                payments_breakdown = [
+                    {"method": method or "Non spécifié", "amount": float(amount or 0)}
+                    for method, amount in payment_methods
+                ]
+                
+                result = {
+                    # Stats de base
+                    "total_stock": int(total_stock),
+                    "stock_total_value": float(stock_total_value or 0),
+                    "stock_sale_value": float(stock_sale_value or 0),
+                    "pending_invoices": int(pending_invoices),
+                    "monthly_revenue": float(monthly_revenue or 0),
+                    "monthly_revenue_gross": float(monthly_revenue_gross or 0),
+                    "monthly_supplier_payments": float(monthly_supplier_payments or 0),
+                    "monthly_daily_purchases": float(monthly_purchases or 0),
+                    "monthly_external_profit": float(monthly_external_profit or 0),
+                    "unpaid_amount": float(unpaid_amount or 0),
+                    
+                    # KPIs avancés
+                    "avg_ticket": avg_ticket,
+                    "conversion_rate": conversion_rate,
+                    "critical_stock": int(low_stock + out_of_stock),
+                    "low_stock": int(low_stock),
+                    "out_of_stock": int(out_of_stock),
+                    "active_customers": int(active_customers),
+                    
+                    # Données détaillées
+                    "top_products": top_products_list,
+                    "payment_methods": payments_breakdown,
+                    
+                    # Meta
+                    "cached_at": datetime.now().isoformat(),
+                    "period_days": 30,
+                    "purchases_30d": float(purchases_30d),
+                    "revenue_30d_gross": float(total_revenue_30d_gross),
+                    "supplier_payments_30d": float(supplier_payments_30d),
+                    "external_profit_30d": float(external_profit_30d)
+                }
+                
+                # Log pour debug
+                logging.info(f"Dashboard stats computed: total_stock={result.get('total_stock', 'N/A')}, pending_invoices={result.get('pending_invoices', 'N/A')}, monthly_revenue={result.get('monthly_revenue', 'N/A')}, stock_total_value={result.get('stock_total_value', 'N/A')}, stock_sale_value={result.get('stock_sale_value', 'N/A')}")
+                logging.info(f"Dashboard stats keys: {list(result.keys())}")
+                return result
+            except Exception as compute_error:
+                import traceback
+                logging.error(f"Erreur dans compute_stats: {compute_error}")
+                logging.error(f"Traceback: {traceback.format_exc()}")
+                raise
         
-        result = _get_cached_or_compute(cache_key, compute_stats)
-        return result
+        try:
+            result = _get_cached_or_compute(cache_key, compute_stats)
+            logging.info(f"Dashboard stats API returning: type={type(result)}, total_stock={result.get('total_stock', 'N/A') if isinstance(result, dict) else 'N/A'}")
+            return result
+        except Exception as inner_e:
+            logging.error(f"Erreur dans _get_cached_or_compute: {inner_e}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            raise
         
     except Exception as e:
+        import traceback
         logging.error(f"Erreur dashboard stats: {e}")
+        logging.error(f"Traceback: {traceback.format_exc()}")
         # Retourner des données par défaut en cas d'erreur
         return {
             "total_stock": 0,

@@ -6,7 +6,7 @@ let selectedCategoryId = null;
 let selectedCategoryName = '';
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     console.log('[settings.js] DOMContentLoaded - script loaded');
     // console.log('Settings - DOMContentLoaded, authManager:', window.authManager);
 
@@ -46,7 +46,16 @@ if (typeof window !== 'undefined') {
 }
     };
 
-    // Initialiser immédiatement sans délai pour un chargement instantané
+    // S'assurer que l'auth cookie est validée avant de charger et surtout avant de sauvegarder
+    try {
+        if (window.authManager && typeof window.authManager.verifyAuth === 'function') {
+            await window.authManager.verifyAuth();
+        }
+    } catch (e) {
+        // ignore
+    }
+
+    // Initialiser immédiatement après vérification
     init();
 });
 

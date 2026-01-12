@@ -18,6 +18,7 @@ from ..schemas import (
     ProductListItem, ProductVariantListItem
 )
 from ..auth import get_current_user, require_role, require_any_role
+from ..routers.dashboard import invalidate_dashboard_cache
 from decimal import Decimal
 from pydantic import BaseModel
 from ..database import InvoiceItem, QuotationItem, DeliveryNoteItem
@@ -318,6 +319,32 @@ def _ensure_condition_columns(db: Session):
     except Exception as e:
         logging.error(f"Erreur dans _ensure_condition_columns: {e}")
 
+
+def _normalize_variant_price(value):
+    try:
+        if value is None:
+            return None
+        # tolérer chaînes vides
+        if isinstance(value, str) and not value.strip():
+            return None
+        from decimal import Decimal
+        d = Decimal(str(value))
+        return d if d > 0 else None
+    except Exception:
+        return None
+
+def _normalize_variant_quantity(value):
+    try:
+        if value is None:
+            return None
+        # tolérer chaînes vides
+        if isinstance(value, str) and not value.strip():
+            return None
+        q = int(value)
+        return q if q >= 0 else None
+    except Exception:
+        return None
+
 def _get_allowed_conditions(db: Session) -> dict:
     """Retourne {options: [...], default: str}. Stocké dans UserSettings (global)."""
     setting = db.query(UserSettings).filter(
@@ -504,6 +531,7 @@ async def list_products_paginated(
     search: Optional[str] = None,
     category: Optional[str] = None,
     condition: Optional[str] = None,
+    source: Optional[str] = None,  # purchase | exchange | return | other
     in_stock: Optional[bool] = None,
     has_variants: Optional[bool] = None,
     min_price: Optional[float] = None,
@@ -540,6 +568,7 @@ async def list_products_paginated(
                 Product.entry_date,
                 Product.notes,
                 Product.image_path,
+                Product.source,
                 Product.created_at,
                 Product.is_archived,
             )
@@ -585,6 +614,10 @@ async def list_products_paginated(
                 Product.product_id.in_(variant_condition_subquery)
             )
         )
+    
+    if source:
+        # Filtrer par source (purchase, exchange, return, other)
+        base_query = base_query.filter(Product.source == source)
 
     if min_price is not None:
         base_query = base_query.filter(Product.price >= Decimal(min_price))
@@ -680,11 +713,18 @@ async def list_products_paginated(
         has_variants_set = {r[0] for r in variant_any_rows}
 
         # Compte des variantes disponibles et répartition par condition (uniquement non vendues)
+        # Pour les variantes avec quantity définie, on somme les quantités
+        # Pour les variantes sans quantity (mode IMEI unique), on compte les variantes
         rows = (
             db.query(
                 ProductVariant.product_id,
                 func.lower(func.coalesce(func.trim(ProductVariant.condition), '')).label('cond_key'),
-                func.count(ProductVariant.variant_id).label('available_by_condition')
+                func.sum(
+                    case(
+                        (ProductVariant.quantity.isnot(None), ProductVariant.quantity),
+                        else_=1
+                    )
+                ).label('available_by_condition')
             )
             .filter(
                 ProductVariant.product_id.in_(product_ids),
@@ -796,7 +836,9 @@ async def create_product(
             normalized_variants.append({
                 'imei_serial': v_serial,
                 'barcode': v_barcode,
-                'condition': (getattr(v, 'condition', None) or (product_data.condition or default_cond))
+                'condition': (getattr(v, 'condition', None) or (product_data.condition or default_cond)),
+                'price': _normalize_variant_price(getattr(v, 'price', None)),
+                'quantity': _normalize_variant_quantity(getattr(v, 'quantity', None)),
             })
             if v_barcode:
                 variant_barcodes.append(v_barcode)
@@ -823,10 +865,16 @@ async def create_product(
         if prod_condition and prod_condition.lower() not in allowed:
             raise HTTPException(status_code=400, detail="Condition de produit invalide")
 
+        # Calculer la quantité produit: somme des variant.quantity si variantes, sinon product.quantity
+        if has_variants:
+            product_qty = sum(nv.get('quantity') or 0 for nv in normalized_variants)
+        else:
+            product_qty = product_data.quantity
+
         db_product = Product(
             name=product_data.name,
             description=product_data.description,
-            quantity=len(normalized_variants) if has_variants else product_data.quantity,
+            quantity=product_qty,
             price=product_data.price,
             wholesale_price=product_data.wholesale_price,
             purchase_price=product_data.purchase_price,
@@ -849,7 +897,9 @@ async def create_product(
                 product_id=db_product.product_id,
                 imei_serial=nv['imei_serial'],
                 barcode=nv['barcode'],
-                condition=nv['condition']
+                condition=nv['condition'],
+                price=nv.get('price'),
+                quantity=nv.get('quantity'),
             )
             db.add(db_variant)
             db.flush()
@@ -877,6 +927,12 @@ async def create_product(
         
         db.commit()
         db.refresh(db_product)
+        
+        # Invalider le cache du dashboard après création de produit
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass  # Non bloquant
         
         return db_product
         
@@ -983,7 +1039,9 @@ async def update_product(
                 norm_variants.append({
                     'imei_serial': v_serial,
                     'barcode': v_barcode,
-                    'condition': (getattr(v, 'condition', None) or product.condition or default_cond)
+                    'condition': (getattr(v, 'condition', None) or product.condition or default_cond),
+                    'price': _normalize_variant_price(getattr(v, 'price', None)),
+                    'quantity': _normalize_variant_quantity(getattr(v, 'quantity', None)),
                 })
                 if v_barcode:
                     variant_barcodes.append(v_barcode)
@@ -1041,6 +1099,8 @@ async def update_product(
                     db_variant = existing_variants[imei]
                     db_variant.barcode = nv['barcode']
                     db_variant.condition = nv['condition']
+                    db_variant.price = nv.get('price')
+                    db_variant.quantity = nv.get('quantity')
                     # Ne pas modifier is_sold - il est préservé
                 else:
                     # Créer une nouvelle variante
@@ -1049,6 +1109,8 @@ async def update_product(
                         imei_serial=nv['imei_serial'],
                         barcode=nv['barcode'],
                         condition=nv['condition'],
+                        price=nv.get('price'),
+                        quantity=nv.get('quantity'),
                         is_sold=False  # Nouvelle variante = non vendue
                     )
                     db.add(db_variant)
@@ -1082,17 +1144,27 @@ async def update_product(
                     # Ne pas bloquer la mise à jour si un attribut est mal formé
                     pass
             
-            # Mettre à jour la quantité basée sur les variantes non vendues uniquement
-            available_variants = db.query(ProductVariant).filter(
-                ProductVariant.product_id == product_id,
-                ProductVariant.is_sold == False
-            ).count()
-            product.quantity = available_variants
+            # Mettre à jour la quantité basée sur la somme des variant.quantity
+            total_qty = 0
+            for db_v in db.query(ProductVariant).filter(ProductVariant.product_id == product_id).all():
+                vq = getattr(db_v, 'quantity', None)
+                if vq is not None and vq > 0:
+                    total_qty += vq
+                elif vq is None and not db_v.is_sold:
+                    # Variante sans quantity: compter 1 si non vendue (rétrocompat)
+                    total_qty += 1
+            product.quantity = total_qty
             # S'assurer que le code-barres produit est None si variantes
             product.barcode = None
         
         db.commit()
         db.refresh(product)
+        
+        # Invalider le cache du dashboard après modification de produit
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass  # Non bloquant
         
         return product
         
@@ -1915,6 +1987,12 @@ async def upload_product_image(
         product.image_path = str(file_path)
         db.commit()
         db.refresh(product)
+        
+        # Invalider le cache du dashboard après modification de produit
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass  # Non bloquant
 
         return {
             "message": "Image uploadée avec succès",

@@ -260,6 +260,50 @@ def _format_date_no_time(value) -> str:
 
 templates.env.filters["format_date"] = _format_date_no_time
 
+def _format_phone_sn(value) -> str:
+    try:
+        if value is None:
+            return ""
+        s = str(value).strip()
+        if not s:
+            return ""
+        # Garder uniquement chiffres et '+'
+        s = s.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        # Convertir les formes 00+ en +
+        if s.startswith("00"):
+            s = "+" + s[2:]
+        # Extraire uniquement les chiffres
+        digits = "".join(ch for ch in s if ch.isdigit())
+        if not digits:
+            return str(value)
+
+        # Normaliser Sénégal +221
+        if digits.startswith("221"):
+            local = digits[3:]
+        elif digits.startswith("0"):
+            local = digits[1:]
+        else:
+            local = digits
+
+        # Garder 9 chiffres si possible
+        if len(local) > 9:
+            local = local[-9:]
+
+        if len(local) == 9:
+            # Format: +221 77 XXX XX XX
+            a = local[0:2]
+            b = local[2:5]
+            c = local[5:7]
+            d = local[7:9]
+            return f"+221 {a} {b} {c} {d}"
+
+        # Fallback si longueur inattendue
+        return f"+221 {local}" if local else f"+221 {digits}"
+    except Exception:
+        return str(value or "")
+
+templates.env.filters["format_phone_sn"] = _format_phone_sn
+
 def _normalize_logo(logo_value: str | None) -> str | None:
     try:
         if not logo_value:
@@ -533,6 +577,11 @@ async def suppliers_page(request: Request, db: Session = Depends(get_db)):
     """Page de gestion des fournisseurs"""
     return templates.TemplateResponse("suppliers.html", {"request": request, "global_settings": _load_company_settings(db)})
 
+@app.get("/supplier/{supplier_id}", response_class=HTMLResponse)
+async def supplier_detail_page(request: Request, supplier_id: int, db: Session = Depends(get_db)):
+    """Page de détails d'un fournisseur"""
+    return templates.TemplateResponse("supplier_detail.html", {"request": request, "global_settings": _load_company_settings(db)})
+
 @app.get("/delivery-notes", response_class=HTMLResponse)
 async def delivery_notes_page(request: Request, db: Session = Depends(get_db)):
     """Page de gestion des bons de livraison"""
@@ -686,7 +735,7 @@ def _load_company_settings(db: Session) -> dict:
 async def print_invoice_page(request: Request, invoice_id: int, db: Session = Depends(get_db)):
     inv = (
         db.query(Invoice)
-        .options(joinedload(Invoice.items), joinedload(Invoice.client), joinedload(Invoice.payments))
+        .options(joinedload(Invoice.items), joinedload(Invoice.client), joinedload(Invoice.payments), joinedload(Invoice.exchange_items))
         .filter(Invoice.invoice_id == invoice_id)
         .first()
     )
@@ -909,10 +958,16 @@ async def print_invoice_page(request: Request, invoice_id: int, db: Session = De
         ordered_items.append(g)
         seen_keys.add(key)
 
+    # Charger les exchange_items si c'est une facture d'échange
+    exchange_items = []
+    if hasattr(inv, 'exchange_items') and inv.exchange_items:
+        exchange_items = inv.exchange_items
+    
     context = {
         "request": request,
         "invoice": inv,
         "grouped_items": ordered_items,
+        "exchange_items": exchange_items,
         "signature_data_url": signature_data_url,
         "resolved_payment_method": resolved_payment_method,
         "warranty_certificate": warranty_certificate,

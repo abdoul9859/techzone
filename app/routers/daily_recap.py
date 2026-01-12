@@ -289,7 +289,7 @@ async def get_daily_recap_stats(
                     (lambda inv: {
                         "id": inv.invoice_id,
                         "number": inv.invoice_number,
-                        "client_name": inv.client.name if inv.client else "Client inconnu",
+                        "client_name": (inv.client.name if inv.client else ("Vente Flash" if getattr(inv, 'invoice_type', None) == 'flash_sale' else "Client inconnu")),
                         "total": float(inv.total or 0),
                         # Statut recalculé selon paiements cumulés (évite états obsolètes)
                         "status": (
@@ -329,7 +329,7 @@ async def get_daily_recap_stats(
                     {
                         "id": q.quotation_id,
                         "number": q.quotation_number,
-                        "client_name": q.client.name if q.client else "Client inconnu",
+                        "client_name": (q.client.name if q.client else "Client inconnu"),
                         "total": float(q.total or 0),
                         "status": q.status,
                         "time": q.created_at.strftime("%H:%M") if q.created_at else ""
@@ -340,7 +340,7 @@ async def get_daily_recap_stats(
                     {
                         "id": q.quotation_id,
                         "number": q.quotation_number,
-                        "client_name": q.client.name if q.client else "Client inconnu",
+                        "client_name": (q.client.name if q.client else "Client inconnu"),
                         "total": float(q.total or 0),
                         "time": q.created_at.strftime("%H:%M") if q.created_at else ""
                     }
@@ -451,7 +451,7 @@ async def get_daily_recap_stats(
                         {
                             "id": inv.invoice_id,
                             "number": inv.invoice_number,
-                            "client_name": inv.client.name if inv.client else "Client inconnu",
+                            "client_name": (inv.client.name if inv.client else ("Vente Flash" if getattr(inv, 'invoice_type', None) == 'flash_sale' else "Client inconnu")),
                             "total": float(inv.total or 0),
                             "status": (
                                 "payée" if sum(float(p.amount or 0) for p in (inv.payments or [])) >= float(inv.total or 0) else
@@ -469,7 +469,7 @@ async def get_daily_recap_stats(
                         {
                             "id": q.quotation_id,
                             "number": q.quotation_number,
-                            "client_name": q.client.name if q.client else "Client inconnu",
+                            "client_name": (q.client.name if q.client else "Client inconnu"),
                             "total": float(q.total or 0),
                             "status": q.status,
                             "time": q.created_at.strftime("%H:%M") if q.created_at else ""

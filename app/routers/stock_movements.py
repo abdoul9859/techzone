@@ -122,6 +122,16 @@ async def create_stock_movement(
         db.commit()
         db.refresh(db_movement)
 
+        # Invalider le cache produits (évite un stock périmé côté UI)
+        try:
+            try:
+                from .products import _cache as _products_cache
+                _products_cache.clear()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         # Synchroniser le stock avec Google Sheets (si activé)
         try:
             sync_product_stock_to_sheets(db, movement_data.product_id)
@@ -268,6 +278,13 @@ def create_stock_movement(db: Session, product_id: int, quantity: int, movement_
             unit_price=unit_price
         )
         db.add(movement)
+
+        # Invalider le cache produits pour refléter immédiatement les changements de stock
+        try:
+            from .products import _cache as _products_cache
+            _products_cache.clear()
+        except Exception:
+            pass
         return movement
     except Exception as e:
         logging.error(f"Erreur lors de la création automatique du mouvement: {e}")
