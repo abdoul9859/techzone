@@ -154,7 +154,9 @@ async def get_debts(
                 paid = float(sup_inv.paid_amount or 0)
                 remaining = float(sup_inv.remaining_amount or 0)
                 # Statut
-                overdue = bool(sup_inv.due_date and sup_inv.due_date.date() < today and remaining > 0)
+                # FIX: Handle partial date objects or strings safely
+                due_dt = getattr(sup_inv.due_date, 'date', lambda: sup_inv.due_date)()
+                overdue = bool(sup_inv.due_date and due_dt < today and remaining > 0)
                 if remaining <= 0:
                     st = "paid"
                 elif overdue:
@@ -180,7 +182,7 @@ async def get_debts(
                     "due_date": sup_inv.due_date,
                     "created_at": sup_inv.created_at,
                     "status": st,
-                    "days_overdue": ( (today - sup_inv.due_date.date()).days if (sup_inv.due_date and remaining > 0) else 0 ),
+                    "days_overdue": ( (today - due_dt).days if (sup_inv.due_date and remaining > 0) else 0 ),
                     "description": sup_inv.description,
                 })
 
@@ -688,7 +690,7 @@ async def get_debts_stats(
         # Overdue clients
         client_overdue = [i for i in open_invoices if (i.due_date and getattr(i.due_date, 'date', lambda: i.due_date)() < today and remaining_of(i) > 0)]
         # Overdue fournisseurs
-        supplier_overdue = [i for i in supplier_invs if (i.due_date and i.due_date.date() < today)]
+        supplier_overdue = [i for i in supplier_invs if (i.due_date and getattr(i.due_date, 'date', lambda: i.due_date)() < today)]
         
         # Pending (non payé du tout)
         client_pending = [i for i in open_invoices if float(i.paid_amount or 0) == 0 and not (i in client_overdue)]

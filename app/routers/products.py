@@ -415,7 +415,7 @@ async def list_products(
 ):
     """Lister les produits avec recherche et filtres"""
     _ensure_condition_columns(db)
-    query = db.query(Product)
+    query = db.query(Product).options(selectinload(Product.variants))
     
     # Par défaut, exclure les produits archivés
     if not include_archived:
@@ -476,10 +476,22 @@ async def list_products(
     if model:
         query = query.filter(Product.model.ilike(f"%{model}%"))
 
-    if has_barcode is True:
-        query = query.filter(Product.barcode.isnot(None), func.length(func.trim(Product.barcode)) > 0)
-    elif has_barcode is False:
-        query = query.filter(or_(Product.barcode.is_(None), func.length(func.trim(Product.barcode)) == 0))
+    if has_barcode is not None:
+        # Considérer qu'un produit a un code-barres s'il a un code-barres produit OU si l'une de ses variantes a un code-barres/IMEI
+        variant_has_code = exists().where(
+            and_(
+                ProductVariant.product_id == Product.product_id,
+                or_(
+                    and_(ProductVariant.barcode.isnot(None), func.length(func.trim(ProductVariant.barcode)) > 0),
+                    and_(ProductVariant.imei_serial.isnot(None), func.length(func.trim(ProductVariant.imei_serial)) > 0),
+                )
+            )
+        )
+        product_has_code = and_(Product.barcode.isnot(None), func.length(func.trim(Product.barcode)) > 0)
+        if has_barcode is True:
+            query = query.filter(or_(product_has_code, variant_has_code))
+        else:  # has_barcode is False
+            query = query.filter(and_(or_(Product.barcode.is_(None), func.length(func.trim(Product.barcode)) == 0), ~variant_has_code))
 
     # Existence-based filters
     pv_exists_available = exists().where(and_(ProductVariant.product_id == Product.product_id, ProductVariant.is_sold == False))
@@ -548,10 +560,10 @@ async def list_products_paginated(
     """Lister les produits avec pagination (retourne items + total)."""
     _ensure_condition_columns(db)
     # Eager-load only the necessary columns to speed up list view
-    # Note: nous n'incluons plus le selectinload des variantes pour la liste; un résumé sera calculé séparément
     base_query = (
         db.query(Product)
         .options(
+            selectinload(Product.variants),  # Charger les variantes pour le calcul du stock côté frontend
             load_only(
                 Product.product_id,
                 Product.name,
@@ -594,6 +606,23 @@ async def list_products_paginated(
             )
         ).subquery()
         base_query = base_query.filter(or_(search_filter, Product.product_id.in_(variant_search)))
+
+    # has_barcode filter should include variant-level codes as well
+    if has_barcode is not None:
+        variant_has_code = exists().where(
+            and_(
+                ProductVariant.product_id == Product.product_id,
+                or_(
+                    and_(ProductVariant.barcode.isnot(None), func.length(func.trim(ProductVariant.barcode)) > 0),
+                    and_(ProductVariant.imei_serial.isnot(None), func.length(func.trim(ProductVariant.imei_serial)) > 0),
+                )
+            )
+        )
+        product_has_code = and_(Product.barcode.isnot(None), func.length(func.trim(Product.barcode)) > 0)
+        if has_barcode is True:
+            base_query = base_query.filter(or_(product_has_code, variant_has_code))
+        else:
+            base_query = base_query.filter(and_(or_(Product.barcode.is_(None), func.length(func.trim(Product.barcode)) == 0), ~variant_has_code))
 
     if category:
         base_query = base_query.filter(Product.category == category)
@@ -934,6 +963,13 @@ async def create_product(
         except Exception:
             pass  # Non bloquant
         
+        # Invalider le cache produits pour synchroniser les recherches
+        try:
+            global _cache
+            _cache.clear()
+        except Exception:
+            pass
+        
         return db_product
         
     except HTTPException:
@@ -1166,6 +1202,13 @@ async def update_product(
         except Exception:
             pass  # Non bloquant
         
+        # Invalider le cache produits pour synchroniser les recherches
+        try:
+            global _cache
+            _cache.clear()
+        except Exception:
+            pass
+        
         return product
         
     except HTTPException:
@@ -1214,6 +1257,13 @@ async def delete_product(
         
         db.delete(product)
         db.commit()
+        
+        # Invalider le cache produits
+        try:
+            global _cache
+            _cache.clear()
+        except Exception:
+            pass
         
         return {"message": "Produit supprimé avec succès"}
         

@@ -6,7 +6,7 @@ async function loadQuotationDetail(quotationId) {
         <tr>
             <td>
                 ${escapeHtml(it.product_name || '')}
-                ${(() => { try { const p = (products||[]).find(pp => Number(pp.product_id) === Number(it.product_id)); return (p && p.description) ? `<div class="text-muted small mt-1" style="text-align:justify">${escapeHtml(p.description)}</div>` : ''; } catch(e){ return ''; } })()}
+                ${(() => { try { const p = (products || []).find(pp => Number(pp.product_id) === Number(it.product_id)); return (p && p.description) ? `<div class="text-muted small mt-1" style="text-align:justify">${escapeHtml(p.description)}</div>` : ''; } catch (e) { return ''; } })()}
             </td>
             <td class="text-end">${it.quantity}</td>
             <td class="text-end">${formatCurrency(it.price)}</td>
@@ -39,9 +39,9 @@ async function preloadQuotationIntoForm(quotationId) {
     // Charger les produits si pas encore chargés
     if (!products || products.length === 0) {
         try {
-            const { data } = await axios.get('/api/products');
+            const { data } = await axios.get('/api/products/');
             products = data.items || data || [];
-        } catch(e) {
+        } catch (e) {
             console.warn('Erreur chargement produits:', e);
         }
     }
@@ -59,7 +59,7 @@ async function preloadQuotationIntoForm(quotationId) {
         if (hidden) hidden.value = q.client_id || '';
         const cl = (clients || []).find(c => Number(c.client_id) === Number(q.client_id));
         if (input) input.value = cl ? (cl.name || '') : (q.client_name || '');
-    } catch(e) {}
+    } catch (e) { }
     document.getElementById('quotationNotes').value = q.notes || '';
     // TVA
     const taxInput = document.getElementById('taxRateInput');
@@ -115,7 +115,7 @@ let productIdToStock = new Map();
 
 // Fallback: define buildSortHeader locally if not provided by products.js
 if (typeof window.buildSortHeader !== 'function') {
-    window.buildSortHeader = function(label, byKey) {
+    window.buildSortHeader = function (label, byKey) {
         const isActive = (window.currentSort && window.currentSort.by === byKey);
         const ascActive = isActive && window.currentSort.dir === 'asc';
         const descActive = isActive && window.currentSort.dir === 'desc';
@@ -136,7 +136,7 @@ if (typeof window.buildSortHeader !== 'function') {
 }
 
 // Initialisation (cookie-based auth readiness)
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const ready = () => {
         const hasAuthManager = !!window.authManager;
         const hasUser = !!(hasAuthManager && window.authManager.userData && Object.keys(window.authManager.userData).length);
@@ -153,13 +153,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } catch (e) { /* ignore */ }
         loadQuotations();
-        try { loadStats(); } catch(e){}
+        try { loadStats(); } catch (e) { }
         // Lazy load clients/products on demand only
         setupEventListeners();
         setDefaultDates();
         // Précharger les produits pour que le select fonctionne immédiatement
-        try { loadProducts(); } catch(e) {}
-        
+        try { loadProducts(); } catch (e) { }
+
         // Si on arrive depuis une facture pour voir un devis spécifique
         try {
             const openId = sessionStorage.getItem('open_quotation_detail_id');
@@ -167,10 +167,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 sessionStorage.removeItem('open_quotation_detail_id');
                 // Attendre un court instant que la liste soit affichée puis ouvrir le devis
                 setTimeout(() => {
-                    try { viewQuotation(Number(openId)); } catch(e) {}
+                    try { viewQuotation(Number(openId)); } catch (e) { }
                 }, 500);
             }
-        } catch (e) {}
+        } catch (e) { }
     };
 
     // Initialiser immédiatement sans délai pour un chargement instantané
@@ -185,7 +185,7 @@ function setupEventListeners() {
     document.getElementById('dateToFilter')?.addEventListener('change', () => loadQuotations(1));
 
     // Initialiser la recherche client
-    try { setupClientSearch(); } catch(e) {}
+    try { setupClientSearch(); } catch (e) { }
 
     // Bouton nouveau client (modal rapide)
     document.getElementById('openQuickClientBtnQ')?.addEventListener('click', () => {
@@ -221,31 +221,31 @@ function setupEventListeners() {
             const res = await axios.get('/api/products/', { params: { search: query, limit: 20 } });
             const list = res.data?.items || res.data || [];
             // Conserver la dernière liste de résultats produit (aligné sur factures)
-            try { window._latestProductResults = list; } catch (e) {}
+            try { window._latestProductResults = list; } catch (e) { }
             suggestBox.innerHTML = list.map(p => {
                 const variants = Array.isArray(p.variants) ? p.variants : [];
                 const hasVariants = variants.length > 0;
                 const available = hasVariants ? variants.filter(v => !v.is_sold).length : Number(p.quantity || 0);
-                const stockBadge = `<span class="badge ${available>0?'bg-success':'bg-danger'} ms-2">${available>0?('Stock: '+available):'Rupture'}</span>`;
+                const stockBadge = `<span class="badge ${available > 0 ? 'bg-success' : 'bg-danger'} ms-2">${available > 0 ? ('Stock: ' + available) : 'Rupture'}</span>`;
                 const isOutOfStock = available === 0;
                 return `
                 <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isOutOfStock ? 'text-muted' : ''}" data-product-id="${p.product_id}">
                     <div class="d-flex align-items-center gap-2">
                         ${(() => {
-                            if (!p.image_path) return '';
-                            const imgPath = String(p.image_path).trim();
-                            if (!imgPath) return '';
-                            let imageUrl = imgPath.startsWith('/') ? imgPath : '/' + imgPath;
-                            if (!imageUrl.startsWith('/static')) {
-                                imageUrl = '/static/' + imgPath.replace(/^\/+/, '');
-                            }
-                            return `<img src="${imageUrl}" alt="${escapeHtml(p.name)}"
+                        if (!p.image_path) return '';
+                        const imgPath = String(p.image_path).trim();
+                        if (!imgPath) return '';
+                        let imageUrl = imgPath.startsWith('/') ? imgPath : '/' + imgPath;
+                        if (!imageUrl.startsWith('/static')) {
+                            imageUrl = '/static/' + imgPath.replace(/^\/+/, '');
+                        }
+                        return `<img src="${imageUrl}" alt="${escapeHtml(p.name)}"
                                  style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;"
                                  onerror="this.style.display='none';">`;
-                        })()}
+                    })()}
                         <div>
                             <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name)} ${stockBadge}</div>
-                            <div class="text-muted small">${p.barcode ? 'Code: '+escapeHtml(p.barcode) : ''}</div>
+                            <div class="text-muted small">${p.barcode ? 'Code: ' + escapeHtml(p.barcode) : ''}</div>
                         </div>
                     </div>
                     <div class="text-nowrap ms-3">
@@ -284,7 +284,7 @@ function setupEventListeners() {
         let idAttr = null;
         try {
             idAttr = row?.querySelector('button.btn-outline-danger')?.getAttribute('onclick')?.match(/removeQuotationItem\((\d+)\)/)?.[1] || null;
-        } catch (err) {}
+        } catch (err) { }
         const explicitId = Number(row?.dataset?.itemId || idAttr || 0);
         const realId = explicitId || (quotationItems.find(it => !it.product_id)?.id);
 
@@ -322,12 +322,12 @@ async function saveQuickClientFromQuote() {
             if (input) input.value = client.name || '';
             const hidden = document.getElementById('clientSelect');
             if (hidden) hidden.value = String(client.client_id || '');
-        } catch(e) {}
+        } catch (e) { }
         // Optionnel: rafraîchir une courte liste pour l'autocomplete
         try {
             const { data } = await axios.get('/api/clients/', { params: { search: client.name, limit: 8 } });
             clients = Array.isArray(data) ? data : (data.items || []);
-        } catch(e) {}
+        } catch (e) { }
         const qm = bootstrap.Modal.getInstance(document.getElementById('clientQuickModalQ'));
         if (qm) qm.hide();
         showSuccess('Client ajouté');
@@ -339,9 +339,9 @@ async function saveQuickClientFromQuote() {
 function setDefaultDates() {
     const today = new Date().toISOString().split('T')[0];
     const quotationDate = document.getElementById('quotationDate');
-    
+
     if (quotationDate) quotationDate.value = today;
-    
+
     // Date de validité par défaut (30 jours)
     const validUntil = new Date();
     validUntil.setDate(validUntil.getDate() + 30);
@@ -369,7 +369,7 @@ function updateStats() {
         if (elTotal) elTotal.textContent = String(total);
         if (elAccepted) elAccepted.textContent = String(accepted);
         if (elPending) elPending.textContent = String(pending);
-        if (elValue) elValue.textContent = typeof formatCurrency === 'function' ? formatCurrency(totalValue) : `${(totalValue||0).toLocaleString('fr-FR')} XOF`;
+        if (elValue) elValue.textContent = typeof formatCurrency === 'function' ? formatCurrency(totalValue) : `${(totalValue || 0).toLocaleString('fr-FR')} XOF`;
     } catch (e) {
         // silencieux
     }
@@ -390,7 +390,7 @@ async function loadQuotations(page = 1) {
         if (dateTo) params.append('end_date', dateTo);
 
         const response = await safeLoadData(
-            () => axios.get(`/api/quotations/paginated?${params.toString()}`),
+            () => axios.get(`/api/quotations/paginated/?${params.toString()}`),
             {
                 timeout: 8000,
                 fallbackData: { items: [], total: 0, total_accepted: 0, total_pending: 0, total_value: 0 },
@@ -407,7 +407,7 @@ async function loadQuotations(page = 1) {
             document.getElementById('acceptedQuotations').textContent = String(payload.total_accepted || 0);
             document.getElementById('pendingQuotations').textContent = String(payload.total_pending || 0);
             document.getElementById('totalValue').textContent = formatCurrency(Number(payload.total_value || 0));
-        } catch (e) {}
+        } catch (e) { }
 
         if (!Array.isArray(filteredQuotations) || filteredQuotations.length === 0) {
             showEmptyState();
@@ -432,7 +432,7 @@ async function loadClients() {
         clients = data?.items || data || [];
         populateClientSelect();
         // Re-rendre la liste des devis pour injecter le nom client après chargement
-        try { if (Array.isArray(quotations) && quotations.length) displayQuotations(); } catch(e) {}
+        try { if (Array.isArray(quotations) && quotations.length) displayQuotations(); } catch (e) { }
     } catch (error) {
         console.error('Erreur lors du chargement des clients:', error);
     }
@@ -453,7 +453,7 @@ async function loadProducts() {
                 // Stock info (non bloquant)
                 const available = variants.length ? variants.filter(v => !v.is_sold).length : (p.quantity || 0);
                 productIdToStock.set(p.product_id, available);
-            } catch (e) {}
+            } catch (e) { }
         }));
     } catch (error) {
         console.error('Erreur lors du chargement des produits:', error);
@@ -514,13 +514,13 @@ function setupClientSearch() {
     });
 
     // Mettre à jour la liste au fil de la frappe (sans minimum de caractères)
-    searchInput.addEventListener('input', debounce(function(e){
+    searchInput.addEventListener('input', debounce(function (e) {
         const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
         renderList(inputVal);
     }, 200));
 
     // Sélection par clic
-    resultsBox.addEventListener('click', function(e){
+    resultsBox.addEventListener('click', function (e) {
         const btn = e.target.closest('[data-client-id]');
         if (!btn) return;
         const id = Number(btn.getAttribute('data-client-id'));
@@ -533,17 +533,17 @@ function setupClientSearch() {
     });
 
     // Navigation clavier
-    searchInput.addEventListener('keydown', function(e){
+    searchInput.addEventListener('keydown', function (e) {
         const items = resultsBox.querySelectorAll('.list-group-item');
         const active = resultsBox.querySelector('.list-group-item.active');
         let idx = Array.from(items).indexOf(active);
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            if (idx < items.length - 1) { if (active) active.classList.remove('active'); items[idx+1]?.classList.add('active'); }
+            if (idx < items.length - 1) { if (active) active.classList.remove('active'); items[idx + 1]?.classList.add('active'); }
             else if (idx === -1 && items.length) { items[0].classList.add('active'); }
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            if (idx > 0) { if (active) active.classList.remove('active'); items[idx-1]?.classList.add('active'); }
+            if (idx > 0) { if (active) active.classList.remove('active'); items[idx - 1]?.classList.add('active'); }
         } else if (e.key === 'Enter') {
             e.preventDefault();
             if (active) {
@@ -555,7 +555,7 @@ function setupClientSearch() {
     });
 
     // Clic extérieur pour fermer
-    document.addEventListener('click', function(e){
+    document.addEventListener('click', function (e) {
         if (!searchInput.contains(e.target) && !resultsBox.contains(e.target)) {
             closeResults();
         }
@@ -600,10 +600,10 @@ function displayQuotations() {
             <td><strong>${formatCurrency(Number(quotation.total || 0))}</strong></td>
             <td>
                 <select class="form-select form-select-sm" onchange="changeQuotationStatus(${quotation.quotation_id}, this.value)">
-                    <option value="en attente" ${currentStatusFr==='en attente'?'selected':''}>En attente</option>
-                    <option value="accepté" ${currentStatusFr==='accepté'?'selected':''}>Accepté</option>
-                    <option value="refusé" ${currentStatusFr==='refusé'?'selected':''}>Refusé</option>
-                    <option value="expiré" ${currentStatusFr==='expiré'?'selected':''}>Expiré</option>
+                    <option value="en attente" ${currentStatusFr === 'en attente' ? 'selected' : ''}>En attente</option>
+                    <option value="accepté" ${currentStatusFr === 'accepté' ? 'selected' : ''}>Accepté</option>
+                    <option value="refusé" ${currentStatusFr === 'refusé' ? 'selected' : ''}>Refusé</option>
+                    <option value="expiré" ${currentStatusFr === 'expiré' ? 'selected' : ''}>Expiré</option>
                 </select>
             </td>
             <td class="text-center">
@@ -624,7 +624,7 @@ function displayQuotations() {
                         <button class="btn btn-sm btn-success" onclick="goToInvoice(${Number(quotation.invoice_id)})" title="Voir la facture">
                             <i class="bi bi-receipt"></i>
                         </button>
-                    ` : ((String(quotation.status||'').toLowerCase()==='accepté') ? `
+                    ` : ((String(quotation.status || '').toLowerCase() === 'accepté') ? `
                         <button class="btn btn-sm btn-outline-success" onclick="convertToInvoice(${quotation.quotation_id})" title="Convertir en facture">
                             <i class="bi bi-receipt"></i>
                         </button>
@@ -650,13 +650,13 @@ function goToInvoice(invoiceId) {
     if (!invoiceId) return;
     try {
         sessionStorage.setItem('invoiceSearchQuery', String(invoiceId));
-    } catch(e) {}
+    } catch (e) { }
     window.location.href = '/invoices';
 }
 
 async function toggleQuotationSent(quotationId, isSent) {
     try {
-        await axios.put(`/api/quotations/${quotationId}/sent`, { is_sent: !!isSent });
+        await axios.put(`/api/quotations/${quotationId}/sent/`, { is_sent: !!isSent });
         await loadQuotations();
         await loadStats();
         showSuccess(isSent ? 'Devis marqué comme envoyé' : 'Devis marqué comme non envoyé');
@@ -669,7 +669,7 @@ async function toggleQuotationSent(quotationId, isSent) {
 async function changeQuotationStatus(quotationId, newStatus) {
     try {
         const statusFr = String(newStatus || '').toLowerCase();
-        await axios.put(`/api/quotations/${quotationId}/status`, { status: statusFr });
+        await axios.put(`/api/quotations/${quotationId}/status/`, { status: statusFr });
         await loadQuotations();
         await loadStats();
         showSuccess('Statut du devis mis à jour');
@@ -720,10 +720,10 @@ function getQuotationStatusLabel(status) {
 }
 
 // Tri dans l'en-tête
-(function wireQuotationSortHeader(){
+(function wireQuotationSortHeader() {
     try {
         const map = [
-            ['number','Numéro'], ['client','Client'], ['date','Date'], ['total','Montant'], ['status','Statut'], ['sent','Envoyé']
+            ['number', 'Numéro'], ['client', 'Client'], ['date', 'Date'], ['total', 'Montant'], ['status', 'Statut'], ['sent', 'Envoyé']
         ];
         map.forEach(([key, label]) => {
             const th = document.querySelector(`#quotationsTable thead th[data-col="${key}"]`);
@@ -806,9 +806,9 @@ function openQuotationModal(isEdit = false) {
         if (hidden) hidden.value = '';
         if (input) input.value = '';
         if (box) box.style.display = 'none';
-    } catch(e) {}
+    } catch (e) { }
     setDefaultDates();
-    
+
     // Pré-remplir un numéro depuis le serveur uniquement en création (évite d'écraser en édition)
     try {
         const input = document.getElementById('quotationNumber');
@@ -816,7 +816,7 @@ function openQuotationModal(isEdit = false) {
             if (!isEdit) {
                 input.value = '';
                 input.placeholder = 'Chargement du numéro...';
-                axios.get('/api/quotations/next-number').then(({ data }) => {
+                axios.get('/api/quotations/next-number/').then(({ data }) => {
                     if (data && data.quotation_number) {
                         input.value = data.quotation_number;
                         input.placeholder = '';
@@ -835,8 +835,8 @@ function openQuotationModal(isEdit = false) {
                 input.placeholder = '';
             }
         }
-    } catch(e) { /* ignore */ }
-    
+    } catch (e) { /* ignore */ }
+
     // Vider les articles
     quotationItems = [];
     updateQuotationItemsDisplay();
@@ -885,7 +885,7 @@ function openQuotationModal(isEdit = false) {
     try {
         const modalEl = document.getElementById('quotationModal');
         if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
-    } catch (e) {}
+    } catch (e) { }
 }
 
 // Gestion des articles de devis
@@ -899,7 +899,7 @@ function addQuotationItem() {
         unit_price: 0,
         total: 0
     };
-    
+
     quotationItems.push(newItem);
     updateQuotationItemsDisplay();
 }
@@ -982,7 +982,7 @@ function updateQuotationItemsDisplay() {
             </td>
         </tr>`;
         }
-        
+
         // Ligne standard (produit ou service custom)
         return `
         <tr data-item-id="${item.id}">
@@ -998,25 +998,25 @@ function updateQuotationItemsDisplay() {
                     <select class="form-select" onchange="selectProduct(${item.id}, this.value)">
                     <option value="">Sélectionner un produit</option>
                         ${(() => {
-                            const productList = Array.isArray(products) ? products : [];
-                            // Si le produit actuel n'est pas dans la liste, l'ajouter en premier
-                            const currentProductInList = item.product_id && productList.some(p => p.product_id == item.product_id);
-                            let options = '';
-                            if (item.product_id && !currentProductInList) {
-                                options += `<option value="${item.product_id}" selected>${escapeHtml(item.product_name || 'Produit #' + item.product_id)} - ${formatCurrency(item.unit_price)}</option>`;
-                            }
-                            options += productList.map(product => {
-                                const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
-                                const available = variants.filter(v => !v.is_sold).length;
-                                const disabled = variants.length > 0 && available === 0;
-                                const stock = productIdToStock.get(product.product_id) ?? 0;
-                                return `
+                const productList = Array.isArray(products) ? products : [];
+                // Si le produit actuel n'est pas dans la liste, l'ajouter en premier
+                const currentProductInList = item.product_id && productList.some(p => p.product_id == item.product_id);
+                let options = '';
+                if (item.product_id && !currentProductInList) {
+                    options += `<option value="${item.product_id}" selected>${escapeHtml(item.product_name || 'Produit #' + item.product_id)} - ${formatCurrency(item.unit_price)}</option>`;
+                }
+                options += productList.map(product => {
+                    const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
+                    const available = variants.filter(v => !v.is_sold).length;
+                    const disabled = variants.length > 0 && available === 0;
+                    const stock = productIdToStock.get(product.product_id) ?? 0;
+                    return `
                                 <option value="${product.product_id}" ${product.product_id == item.product_id ? 'selected' : ''} ${disabled ? 'disabled' : ''}>
                                     ${escapeHtml(product.name)} - ${formatCurrency(product.price)}${product.wholesale_price ? ` / Gros: ${formatCurrency(product.wholesale_price)}` : ''} ${disabled ? '(épuisé)' : `(stock: ${stock})`}
                                 </option>`;
-                            }).join('');
-                            return options;
-                        })()}
+                }).join('');
+                return options;
+            })()}
                 </select>
                     <span class="input-group-text bg-light text-muted">${item.product_id ? `(stock: ${productIdToStock.get(Number(item.product_id)) ?? 0})` : ''}</span>
                 </div>
@@ -1028,15 +1028,15 @@ function updateQuotationItemsDisplay() {
             </td>
             <td>
                 ${!item.is_custom && item.product_id ? (() => {
-                    const product = products.find(p => p.product_id == item.product_id);
-                    const hasWholesale = product && product.wholesale_price;
-                    return hasWholesale ? `
+                const product = products.find(p => p.product_id == item.product_id);
+                const hasWholesale = product && product.wholesale_price;
+                return hasWholesale ? `
                         <select class="form-select form-select-sm" onchange="togglePriceType(${item.id}, this.value === 'wholesale')">
                             <option value="unit" ${item.price_type !== 'wholesale' ? 'selected' : ''}>Unitaire</option>
                             <option value="wholesale" ${item.price_type === 'wholesale' ? 'selected' : ''}>Gros</option>
                         </select>
                     ` : '<small class="text-muted">-</small>';
-                })() : '<small class="text-muted">-</small>'}
+            })() : '<small class="text-muted">-</small>'}
             </td>
             <td>
                 <input type="number" class="form-control form-control-sm" value="${item.unit_price}" step="0.01" min="0"
@@ -1050,7 +1050,7 @@ function updateQuotationItemsDisplay() {
             </td>
         </tr>`;
     }).join('');
-    
+
     // Initialiser le drag-and-drop si SortableJS est disponible
     initSortable();
 }
@@ -1061,14 +1061,14 @@ function initSortable() {
     if (!tbody || typeof Sortable === 'undefined') return;
     // Détruire l'instance précédente si elle existe
     if (tbody._sortableInstance) {
-        try { tbody._sortableInstance.destroy(); } catch(e) {}
+        try { tbody._sortableInstance.destroy(); } catch (e) { }
     }
     tbody._sortableInstance = new Sortable(tbody, {
         animation: 150,
         handle: '.drag-handle',
         ghostClass: 'table-primary',
         chosenClass: 'table-info',
-        onEnd: function(evt) {
+        onEnd: function (evt) {
             // Réordonner quotationItems selon le nouvel ordre du DOM
             const rows = Array.from(tbody.querySelectorAll('tr[data-item-id]'));
             const newOrder = rows.map(row => Number(row.getAttribute('data-item-id')));
@@ -1094,7 +1094,7 @@ function updateCustomName(itemId, name) {
 function selectProduct(itemId, productId, useBulkPrice = false) {
     const item = quotationItems.find(i => i.id === itemId);
     if (!item) return;
-    
+
     let product = products.find(p => String(p.product_id) == String(productId));
     // Fallback: utiliser les derniers résultats de recherche
     if (!product && Array.isArray(window._latestProductResults)) {
@@ -1109,7 +1109,7 @@ function selectProduct(itemId, productId, useBulkPrice = false) {
                 if (!products.some(p => Number(p.product_id) === Number(data.product_id))) {
                     products.push(data);
                 }
-                try { if (Array.isArray(data.variants)) productVariantsByProductId.set(Number(data.product_id), data.variants); } catch (e) {}
+                try { if (Array.isArray(data.variants)) productVariantsByProductId.set(Number(data.product_id), data.variants); } catch (e) { }
                 // Appliquer la sélection
                 selectProduct(itemId, data.product_id, useBulkPrice);
             }).catch(() => {
@@ -1123,7 +1123,7 @@ function selectProduct(itemId, productId, useBulkPrice = false) {
                     calculateTotals();
                 }
             });
-        } catch (e) {}
+        } catch (e) { }
         return;
     }
     if (item && product) {
@@ -1146,7 +1146,7 @@ function selectProduct(itemId, productId, useBulkPrice = false) {
         try {
             const variants = Array.isArray(product.variants) ? product.variants : [];
             if (variants.length) productVariantsByProductId.set(Number(product.product_id), variants);
-        } catch (e) {}
+        } catch (e) { }
         updateQuotationItemsDisplay();
         calculateTotals();
     }
@@ -1174,7 +1174,7 @@ function updateItemPrice(itemId, price) {
     if (item) {
         item.unit_price = parseFloat(price) || 0;
         item.total = item.quantity * item.unit_price;
-        
+
         updateQuotationItemsDisplay();
         calculateTotals();
     }
@@ -1188,7 +1188,7 @@ function removeQuotationItem(itemId) {
 
 // Calculer les totaux
 function calculateTotals() {
-    const subtotal = quotationItems.reduce((sum, item) => sum + (Number(item.total)||0), 0);
+    const subtotal = quotationItems.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
     // Alignement facture: TVA activable, taux dynamique depuis UI
     const showTax = document.getElementById('showTaxSwitch')?.checked ?? true;
     let taxRatePct = parseFloat((document.getElementById('taxRateInput')?.value || '18').toString().replace(',', '.')) || 18;
@@ -1247,17 +1247,17 @@ async function saveQuotation(status) {
 
         // Totaux côté client -> envoyer au backend
         try {
-            const subtotal = quotationItems.reduce((s, it) => s + (Number(it.total)||0), 0);
+            const subtotal = quotationItems.reduce((s, it) => s + (Number(it.total) || 0), 0);
             const showTax = document.getElementById('showTaxSwitch')?.checked ?? true;
             let taxRatePct = parseFloat((document.getElementById('taxRateInput')?.value || '18').toString().replace(',', '.')) || 18;
             const taxRate = showTax ? Math.max(0, taxRatePct) : 0;
-            const taxAmount = subtotal * (taxRate/100);
+            const taxAmount = subtotal * (taxRate / 100);
             const total = subtotal + taxAmount;
             quotationData.subtotal = subtotal;
             quotationData.tax_rate = taxRate;
             quotationData.tax_amount = taxAmount;
             quotationData.total = total;
-        } catch(e) {}
+        } catch (e) { }
 
         // Ajouter signature (fichier PNG ou canvas)
         try {
@@ -1266,7 +1266,7 @@ async function saveQuotation(status) {
             let signatureDataUrl = null;
             if (fileInput && fileInput.files && fileInput.files[0]) {
                 const file = fileInput.files[0];
-                signatureDataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result||'')); r.readAsDataURL(file); });
+                signatureDataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result || '')); r.readAsDataURL(file); });
             } else if (canvas) {
                 const tmp = document.createElement('canvas'); tmp.width = canvas.width; tmp.height = canvas.height;
                 if (canvas.toDataURL() !== tmp.toDataURL()) signatureDataUrl = canvas.toDataURL('image/png');
@@ -1274,7 +1274,7 @@ async function saveQuotation(status) {
             if (signatureDataUrl) {
                 quotationData.notes = (quotationData.notes || '') + `\n\n__SIGNATURE__=${signatureDataUrl}`;
             }
-        } catch(e) {}
+        } catch (e) { }
 
         const quotationId = document.getElementById('quotationId').value;
         const url = quotationId ? `/api/quotations/${quotationId}` : '/api/quotations/';
@@ -1291,9 +1291,9 @@ async function saveQuotation(status) {
         // Recharger la liste
         await loadQuotations();
         await loadStats();
-        
+
         showSuccess(quotationId ? 'Devis enregistré avec succès' : 'Devis enregistré avec succès');
-        
+
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la sauvegarde du devis');
@@ -1331,7 +1331,7 @@ function convertToInvoice(quotationId) {
                     total: Number(it.total || 0)
                 }))
             };
-            try { sessionStorage.setItem('prefill_invoice_from_quotation', JSON.stringify(prefill)); } catch(e) {}
+            try { sessionStorage.setItem('prefill_invoice_from_quotation', JSON.stringify(prefill)); } catch (e) { }
             window.location.href = '/invoices';
         } catch (err) {
             const msg = err?.response?.data?.detail || err?.message || 'Erreur lors de la conversion';
@@ -1342,7 +1342,7 @@ function convertToInvoice(quotationId) {
 
 function printQuotation(quotationId) {
     // Impression dans une popup contrôlée (même UX que facture)
-    const features = ['width=980','height=800','menubar=0','toolbar=0','location=0','status=0','scrollbars=1','resizable=1'].join(',');
+    const features = ['width=980', 'height=800', 'menubar=0', 'toolbar=0', 'location=0', 'status=0', 'scrollbars=1', 'resizable=1'].join(',');
     const w = window.open('', 'quotation_print_popup', features);
     if (!w) { showWarning('La fenêtre pop-up a été bloquée par le navigateur'); return; }
     w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impression devis</title></head><body>Chargement...</body></html>');
@@ -1351,7 +1351,7 @@ function printQuotation(quotationId) {
     fetch(`/quotations/print/${quotationId}`, { credentials: 'include' })
         .then(res => res.text())
         .then(html => { w.document.open(); w.document.write(html); w.document.close(); })
-        .catch(() => { try { w.close(); } catch(e) {} showError('Impossible de charger la page d\'impression'); });
+        .catch(() => { try { w.close(); } catch (e) { } showError('Impossible de charger la page d\'impression'); });
 }
 
 // Envoyer le devis par WhatsApp via n8n
@@ -1361,7 +1361,7 @@ async function sendQuotationWhatsApp(quotationId) {
         // Récupérer les infos du devis pour avoir le numéro du client
         const { data: quotation } = await axios.get(`/api/quotations/${quotationId}`);
         let phone = quotation.client?.phone || '';
-        
+
         // Vérifier si le numéro est renseigné
         if (!phone || phone.trim() === '') {
             phone = prompt('Le numéro de téléphone du client n\'est pas renseigné.\nVeuillez entrer le numéro WhatsApp (ex: +221771234567):');
@@ -1370,20 +1370,20 @@ async function sendQuotationWhatsApp(quotationId) {
                 return;
             }
         }
-        
+
         // Normaliser le numéro (enlever espaces, tirets)
         phone = phone.replace(/[\s\-\.]/g, '').trim();
         if (!phone.startsWith('+')) {
             phone = '+221' + phone.replace(/^0/, ''); // Défaut Sénégal
         }
-        
+
         // Appeler l'API n8n pour envoyer
         showSuccess('Envoi en cours via WhatsApp...');
         const response = await axios.post('/api/quotations/send-whatsapp', {
             quotation_id: parseInt(quotationId),
             phone: phone
         });
-        
+
         if (response.data?.success) {
             showSuccess('Devis envoyé par WhatsApp avec succès!');
         } else {
@@ -1402,7 +1402,7 @@ async function sendQuotationEmail(quotationId) {
         // Récupérer les infos du devis pour avoir l'email du client
         const { data: quotation } = await axios.get(`/api/quotations/${quotationId}`);
         let email = quotation.client?.email || '';
-        
+
         // Vérifier si l'email est renseigné
         if (!email || email.trim() === '') {
             email = prompt('L\'email du client n\'est pas renseigné.\nVeuillez entrer l\'adresse email:');
@@ -1411,20 +1411,20 @@ async function sendQuotationEmail(quotationId) {
                 return;
             }
         }
-        
+
         // Validation basique de l'email
         if (!email.includes('@') || !email.includes('.')) {
             showError('Adresse email invalide');
             return;
         }
-        
+
         // Appeler l'API n8n pour envoyer
         showSuccess('Envoi en cours par email...');
-        const response = await axios.post('/api/quotations/send-email', {
+        const response = await axios.post('/api/quotations/send-email/', {
             quotation_id: parseInt(quotationId),
             email: email.trim()
         });
-        
+
         if (response.data?.success) {
             showSuccess('Devis envoyé par email avec succès!');
         } else {
@@ -1441,30 +1441,30 @@ async function duplicateQuotation(quotationId) {
         // Récupérer les données du devis original
         const response = await axios.get(`/api/quotations/${quotationId}`);
         const data = response.data;
-        
+
         console.log('[DuplicateQuotation] Données récupérées:', data);
-        
+
         // Ouvrir le modal manuellement sans passer par openQuotationModal qui réinitialise tout
         const modalEl = document.getElementById('quotationModal');
         if (!modalEl) {
             showError('Erreur: formulaire de devis introuvable');
             return;
         }
-        
+
         // Reset le formulaire d'abord
         const formEl = document.getElementById('quotationForm');
         if (formEl) formEl.reset();
-        
+
         // Titre du modal
         document.getElementById('quotationModalTitle').innerHTML = '<i class="bi bi-copy me-2"></i>Dupliquer le Devis';
-        
+
         // Ne pas renseigner l'ID pour créer un nouveau devis
         document.getElementById('quotationId').value = '';
-        
+
         // Dates
         document.getElementById('quotationDate').value = new Date().toISOString().split('T')[0];
-        document.getElementById('validUntil').value = new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0];
-        
+        document.getElementById('validUntil').value = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
         // Numéro de devis - récupérer le prochain
         const numberEl = document.getElementById('quotationNumber');
         if (numberEl) {
@@ -1479,7 +1479,7 @@ async function duplicateQuotation(quotationId) {
                 numberEl.placeholder = 'Sera généré automatiquement';
             });
         }
-        
+
         // Renseigner le client
         const hidden = document.getElementById('clientSelect');
         const input = document.getElementById('clientSearch');
@@ -1495,27 +1495,27 @@ async function duplicateQuotation(quotationId) {
                 console.log('[DuplicateQuotation] Client name défini:', cl.name);
             }
         }
-        
+
         // Notes
         const notesEl = document.getElementById('quotationNotes');
         if (notesEl) notesEl.value = data.notes || '';
-        
+
         // TVA
         const taxInput = document.getElementById('taxRateInput');
         if (taxInput) taxInput.value = Number(data.tax_rate || 18);
         const showTaxSwitch = document.getElementById('showTaxSwitch');
         if (showTaxSwitch) showTaxSwitch.checked = (Number(data.tax_rate || 0) > 0);
-        
+
         // Options d'affichage
         const showItemPricesSwitch = document.getElementById('showItemPricesSwitch');
         if (showItemPricesSwitch) showItemPricesSwitch.checked = data.show_item_prices !== false;
         const showSectionTotalsSwitch = document.getElementById('showSectionTotalsSwitch');
         if (showSectionTotalsSwitch) showSectionTotalsSwitch.checked = data.show_section_totals !== false;
-        
+
         // Copier les articles comme lignes personnalisées
         const items = data.items || [];
         console.log('[DuplicateQuotation] Articles à copier:', items);
-        
+
         quotationItems = items.map((it, idx) => {
             const pname = String(it.product_name || '');
             // Détecter les sections
@@ -1543,17 +1543,17 @@ async function duplicateQuotation(quotationId) {
                 is_custom: true
             };
         });
-        
+
         console.log('[DuplicateQuotation] quotationItems après copie:', quotationItems);
-        
+
         // Afficher les articles
         updateQuotationItemsDisplay();
         calculateQuotationTotals();
-        
+
         // Ouvrir le modal
         const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         modal.show();
-        
+
         showSuccess('Formulaire pré-rempli avec les données du devis.');
     } catch (error) {
         console.error('Erreur lors de la duplication:', error);
@@ -1572,7 +1572,7 @@ async function deleteQuotation(quotationId) {
         await loadQuotations();
         await loadStats();
         showSuccess('Devis supprimé avec succès');
-        
+
     } catch (error) {
         console.error('Erreur lors de la suppression:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la suppression du devis');
@@ -1586,7 +1586,7 @@ async function sendQuotationWhatsApp(quotationId) {
         // Récupérer les infos du devis depuis l'API pour avoir le client complet
         const { data: quotation } = await axios.get(`/api/quotations/${quotationId}`);
         let phone = quotation.client?.phone || '';
-        
+
         // Vérifier si le numéro est renseigné
         if (!phone || phone.trim() === '') {
             phone = prompt('Le numéro de téléphone du client n\'est pas renseigné.\nVeuillez entrer le numéro WhatsApp (ex: +221771234567):');
@@ -1595,20 +1595,20 @@ async function sendQuotationWhatsApp(quotationId) {
                 return;
             }
         }
-        
+
         // Normaliser le numéro (enlever espaces, tirets)
         phone = phone.replace(/[\s\-\.]/g, '').trim();
         if (!phone.startsWith('+')) {
             phone = '+221' + phone.replace(/^0/, ''); // Défaut Sénégal
         }
-        
+
         // Appeler l'API n8n pour envoyer
         showSuccess('Envoi en cours via WhatsApp...');
         const response = await axios.post('/api/quotations/send-whatsapp', {
             quotation_id: quotationId,
             phone: phone
         });
-        
+
         if (response.data?.success) {
             showSuccess('Devis envoyé par WhatsApp avec succès!');
         } else {

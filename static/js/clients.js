@@ -5,7 +5,7 @@ let clients = [];
 let filteredClients = [];
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Utiliser la nouvelle logique d'authentification basée sur cookies
     const ready = () => {
         const hasAuthManager = !!window.authManager;
@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialiser immédiatement sans délai pour un chargement instantané
     loadClients();
     setupEventListeners();
-    
+
     // Appliquer la recherche passée via la navbar (?q=...)
     try {
         const params = new URLSearchParams(window.location.search || '');
@@ -27,11 +27,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 input.value = q;
                 // Déclencher le filtrage une fois la liste chargée
                 setTimeout(() => {
-                    try { filterClients(); } catch(e) { /* ignore */ }
+                    try { filterClients(); } catch (e) { /* ignore */ }
                 }, 50);
             }
         }
-    } catch(e) { /* ignore */ }
+    } catch (e) { /* ignore */ }
 });
 
 function setupEventListeners() {
@@ -66,7 +66,7 @@ function debounce(func, wait) {
 async function loadClients() {
     try {
         showLoading();
-        
+
         // Utiliser safeLoadData pour éviter les chargements infinis
         const response = await safeLoadData(
             () => axios.get('/api/clients/', { params: { limit: 1000 } }),
@@ -76,16 +76,16 @@ async function loadClients() {
                 errorMessage: 'Erreur lors du chargement des clients'
             }
         );
-        
+
         const data = response.data || [];
         clients = data.items || data || [];
         filteredClients = [...clients];
-        
+
         displayClients();
         updatePagination();
     } catch (error) {
         console.error('Erreur lors du chargement des clients:', error);
-        
+
         // Afficher un message d'erreur dans le tableau
         const tbody = document.getElementById('clientsTableBody');
         if (tbody) {
@@ -98,7 +98,7 @@ async function loadClients() {
                 </tr>
             `;
         }
-        
+
         if (typeof showAlert === 'function') {
             showAlert('Erreur lors du chargement des clients', 'danger');
         }
@@ -213,7 +213,7 @@ async function filterClients() {
                 if (createdFrom && ymd < createdFrom) return false;
                 if (createdTo && ymd > createdTo) return false;
             }
-        } catch (e) {}
+        } catch (e) { }
         return true;
     });
 
@@ -225,7 +225,7 @@ async function filterClients() {
 // Réinitialiser la recherche
 function resetSearch() {
     document.getElementById('searchInput').value = '';
-    const ids = ['cityFilter','countryFilter','hasEmailFilter','hasPhoneFilter','createdFrom','createdTo'];
+    const ids = ['cityFilter', 'countryFilter', 'hasEmailFilter', 'hasPhoneFilter', 'createdFrom', 'createdTo'];
     ids.forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -241,21 +241,21 @@ function resetSearch() {
 function updatePagination() {
     const totalPages = Math.ceil(filteredClients.length / itemsPerPage);
     const paginationContainer = document.getElementById('pagination-container');
-    
+
     if (!paginationContainer || totalPages <= 1) {
         if (paginationContainer) paginationContainer.innerHTML = '';
         return;
     }
 
     let paginationHTML = '<nav><ul class="pagination justify-content-center">';
-    
+
     // Bouton précédent
     paginationHTML += `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="changePage(${currentPage - 1})">Précédent</a>
         </li>
     `;
-    
+
     // Numéros de page
     for (let i = 1; i <= totalPages; i++) {
         if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
@@ -268,14 +268,14 @@ function updatePagination() {
             paginationHTML += '<li class="page-item disabled"><span class="page-link">...</span></li>';
         }
     }
-    
+
     // Bouton suivant
     paginationHTML += `
         <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="changePage(${currentPage + 1})">Suivant</a>
         </li>
     `;
-    
+
     paginationHTML += '</ul></nav>';
     paginationContainer.innerHTML = paginationHTML;
 }
@@ -304,8 +304,8 @@ function openClientModal() {
 // Modifier un client
 async function editClient(clientId) {
     try {
-        const { data: client } = await axios.get(`/api/clients/${clientId}`);
-        
+        const { data: client } = await axios.get(`/api/clients/${clientId}/`);
+
         // Remplir le formulaire
         document.getElementById('clientId').value = client.client_id;
         document.getElementById('clientName').value = client.name || '';
@@ -322,13 +322,13 @@ async function editClient(clientId) {
         if (disableReminderCheckbox) {
             disableReminderCheckbox.checked = !!client.disable_debt_reminder;
         }
-        
+
         document.getElementById('clientModalTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier Client';
-        
+
         // Ouvrir le modal
         const modal = new bootstrap.Modal(document.getElementById('clientModal'));
         modal.show();
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement du client:', error);
         showError(error.response?.data?.detail || 'Erreur lors du chargement du client');
@@ -358,7 +358,7 @@ async function saveClient() {
             return;
         }
 
-        const url = clientId ? `/api/clients/${clientId}` : '/api/clients/';
+        const url = clientId ? `/api/clients/${clientId}/` : '/api/clients/';
         const method = clientId ? 'PUT' : 'POST';
 
         if (method === 'POST') {
@@ -373,9 +373,9 @@ async function saveClient() {
 
         // Recharger la liste
         await loadClients();
-        
+
         showSuccess(clientId ? 'Client modifié avec succès' : 'Client créé avec succès');
-        
+
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la sauvegarde du client');
@@ -386,7 +386,7 @@ async function saveClient() {
 async function viewClient(clientId) {
     try {
         window.location.href = `/clients/detail?id=${clientId}`;
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement du client:', error);
         showError(error.response?.data?.detail || 'Erreur lors du chargement du client');
@@ -400,11 +400,11 @@ async function deleteClient(clientId) {
     }
 
     try {
-        await axios.delete(`/api/clients/${clientId}`);
+        await axios.delete(`/api/clients/${clientId}/`);
 
         await loadClients();
         showSuccess('Client supprimé avec succès');
-        
+
     } catch (error) {
         console.error('Erreur lors de la suppression:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la suppression du client');

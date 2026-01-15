@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadStats();
     loadClients();
     loadUsers();
-    
+
     // Event listeners pour les filtres
     document.getElementById('searchInput')?.addEventListener('input', debounce(() => { currentPage = 1; loadMaintenances(); }, 300));
     document.getElementById('statusFilter')?.addEventListener('change', () => { currentPage = 1; loadMaintenances(); });
@@ -35,16 +35,16 @@ async function loadMaintenances() {
         const status = document.getElementById('statusFilter')?.value || '';
         const priority = document.getElementById('priorityFilter')?.value || '';
         const overdue = document.getElementById('overdueFilter')?.checked || false;
-        
-        let url = `/api/maintenances?page=${currentPage}&per_page=${perPage}`;
+
+        let url = `/api/maintenances/?page=${currentPage}&per_page=${perPage}`;
         if (search) url += `&search=${encodeURIComponent(search)}`;
         if (status) url += `&status=${status}`;
         if (priority) url += `&priority=${priority}`;
         if (overdue) url += `&overdue=true`;
-        
+
         const response = await axios.get(url);
         const data = response.data;
-        
+
         renderMaintenances(data.items);
         renderPagination(data.total, data.pages);
     } catch (error) {
@@ -56,9 +56,9 @@ async function loadMaintenances() {
 // Charger les statistiques
 async function loadStats() {
     try {
-        const response = await axios.get('/api/maintenances/stats');
+        const response = await axios.get('/api/maintenances/stats/');
         const stats = response.data;
-        
+
         document.getElementById('statReceived').textContent = stats.received || 0;
         document.getElementById('statInProgress').textContent = stats.in_progress || 0;
         document.getElementById('statReady').textContent = stats.ready || 0;
@@ -73,7 +73,7 @@ async function loadStats() {
 // Charger les clients
 async function loadClients() {
     try {
-        const response = await axios.get('/api/clients?per_page=1000');
+        const response = await axios.get('/api/clients/?per_page=1000');
         clients = response.data.items || response.data || [];
         populateClientSelect();
     } catch (error) {
@@ -84,7 +84,7 @@ async function loadClients() {
 // Charger les utilisateurs (techniciens)
 async function loadUsers() {
     try {
-        const response = await axios.get('/api/auth/users');
+        const response = await axios.get('/api/auth/users/');
         users = response.data || [];
         populateTechnicianSelect();
     } catch (error) {
@@ -101,7 +101,7 @@ function setupClientSearch() {
     const searchInput = document.getElementById('clientSearchInput');
     const resultsDiv = document.getElementById('clientSearchResults');
     const hiddenSelect = document.getElementById('clientSelect');
-    
+
     if (!searchInput || !resultsDiv) return;
 
     // IMPORTANT: Bootstrap modal utilise des transforms pendant l'animation.
@@ -112,7 +112,7 @@ function setupClientSearch() {
             document.body.appendChild(resultsDiv);
         }
         resultsDiv.style.position = 'fixed';
-    } catch (e) {}
+    } catch (e) { }
 
     const closeResults = () => { resultsDiv.style.display = 'none'; };
     let latestResults = [];
@@ -185,7 +185,7 @@ function setupClientSearch() {
                 closeResults();
             });
         }
-    } catch (e) {}
+    } catch (e) { }
 
     searchInput.addEventListener('input', debounce((e) => {
         const v = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
@@ -263,7 +263,7 @@ function selectClient(client) {
     const name = client?.name || '';
     const phone = client?.phone || '';
     const email = client?.email || '';
-    
+
     document.getElementById('clientSelect').value = clientId;
     document.getElementById('clientSearchInput').value = name;
     document.getElementById('clientName').value = name;
@@ -286,14 +286,14 @@ function fillClientInfo() {
     // Gardée pour compatibilité
     const hiddenSelect = document.getElementById('clientSelect');
     const clientId = hiddenSelect?.value;
-    
+
     if (!clientId) {
         document.getElementById('clientName').value = '';
         document.getElementById('clientPhone').value = '';
         document.getElementById('clientEmail').value = '';
         return;
     }
-    
+
     const client = clients.find(c => c.client_id == clientId);
     if (client) {
         document.getElementById('clientName').value = client.name || '';
@@ -306,7 +306,7 @@ function fillClientInfo() {
 function renderMaintenances(items) {
     const tbody = document.getElementById('maintenancesTableBody');
     if (!tbody) return;
-    
+
     if (!items || items.length === 0) {
         tbody.innerHTML = `
             <tr>
@@ -317,12 +317,12 @@ function renderMaintenances(items) {
         `;
         return;
     }
-    
+
     tbody.innerHTML = items.map(m => {
         const statusBadge = getStatusBadge(m.status);
         const priorityBadge = getPriorityBadge(m.priority);
         const isOverdue = m.pickup_deadline && new Date(m.pickup_deadline) < new Date() && !m.pickup_date && ['completed', 'ready'].includes(m.status);
-        
+
         return `
         <tr class="${isOverdue ? 'table-danger' : ''}">
             <td><strong>${escapeHtml(m.maintenance_number)}</strong></td>
@@ -395,19 +395,19 @@ function getPriorityBadge(priority) {
 function renderPagination(total, pages) {
     const pagination = document.getElementById('pagination');
     if (!pagination) return;
-    
+
     if (pages <= 1) {
         pagination.innerHTML = '';
         return;
     }
-    
+
     let html = '';
-    
+
     // Précédent
     html += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
         <a class="page-link" href="#" onclick="goToPage(${currentPage - 1}); return false;">Précédent</a>
     </li>`;
-    
+
     // Pages
     for (let i = 1; i <= pages; i++) {
         if (i === 1 || i === pages || (i >= currentPage - 2 && i <= currentPage + 2)) {
@@ -418,12 +418,12 @@ function renderPagination(total, pages) {
             html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
         }
     }
-    
+
     // Suivant
     html += `<li class="page-item ${currentPage === pages ? 'disabled' : ''}">
         <a class="page-link" href="#" onclick="goToPage(${currentPage + 1}); return false;">Suivant</a>
     </li>`;
-    
+
     pagination.innerHTML = html;
 }
 
@@ -447,26 +447,26 @@ function openMaintenanceModal() {
     document.getElementById('maintenanceModalTitle').innerHTML = '<i class="bi bi-plus-circle me-2"></i>Nouvelle Maintenance';
     document.getElementById('maintenanceForm').reset();
     document.getElementById('maintenanceId').value = '';
-    
+
     // Réinitialiser la recherche client
     document.getElementById('clientSearchInput').value = '';
     document.getElementById('clientSelect').value = '';
     document.getElementById('clientSearchResults').style.display = 'none';
-    
+
     // Date de réception par défaut
     const now = new Date();
     document.getElementById('receptionDate').value = now.toISOString().slice(0, 16);
-    
+
     // Date limite par défaut (30 jours)
     const deadline = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     document.getElementById('pickupDeadline').value = deadline.toISOString().slice(0, 10);
-    
+
     // Valeurs par défaut
     document.getElementById('status').value = 'received';
     document.getElementById('priority').value = 'normal';
     document.getElementById('warrantyDays').value = '30';
     document.getElementById('advancePaid').value = '0';
-    
+
     const modal = new bootstrap.Modal(document.getElementById('maintenanceModal'));
     modal.show();
 }
@@ -476,18 +476,18 @@ async function editMaintenance(id) {
     try {
         const response = await axios.get(`/api/maintenances/${id}`);
         const m = response.data;
-        
+
         currentMaintenanceId = id;
         document.getElementById('maintenanceModalTitle').innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier Maintenance';
         document.getElementById('maintenanceId').value = id;
-        
+
         // Remplir les champs client
         document.getElementById('clientSelect').value = m.client_id || '';
         document.getElementById('clientSearchInput').value = m.client_name || '';
         document.getElementById('clientName').value = m.client_name || '';
         document.getElementById('clientPhone').value = m.client_phone || '';
         document.getElementById('clientEmail').value = m.client_email || '';
-        
+
         document.getElementById('deviceType').value = m.device_type || '';
         document.getElementById('deviceBrand').value = m.device_brand || '';
         document.getElementById('deviceModel').value = m.device_model || '';
@@ -495,11 +495,11 @@ async function editMaintenance(id) {
         document.getElementById('deviceDescription').value = m.device_description || '';
         document.getElementById('deviceAccessories').value = m.device_accessories || '';
         document.getElementById('deviceCondition').value = m.device_condition || '';
-        
+
         document.getElementById('problemDescription').value = m.problem_description || '';
         document.getElementById('diagnosis').value = m.diagnosis || '';
         document.getElementById('workDone').value = m.work_done || '';
-        
+
         if (m.reception_date) {
             document.getElementById('receptionDate').value = m.reception_date.slice(0, 16);
         }
@@ -509,19 +509,19 @@ async function editMaintenance(id) {
         if (m.pickup_deadline) {
             document.getElementById('pickupDeadline').value = m.pickup_deadline;
         }
-        
+
         document.getElementById('status').value = m.status || 'received';
         document.getElementById('priority').value = m.priority || 'normal';
         document.getElementById('technicianId').value = m.technician_id || '';
         document.getElementById('warrantyDays').value = m.warranty_days || 30;
-        
+
         document.getElementById('estimatedCost').value = m.estimated_cost || '';
         document.getElementById('finalCost').value = m.final_cost || '';
         document.getElementById('advancePaid').value = m.advance_paid || 0;
-        
+
         document.getElementById('notes').value = m.notes || '';
         document.getElementById('internalNotes').value = m.internal_notes || '';
-        
+
         const modal = new bootstrap.Modal(document.getElementById('maintenanceModal'));
         modal.show();
     } catch (error) {
@@ -534,13 +534,13 @@ async function editMaintenance(id) {
 async function saveMaintenance() {
     try {
         const id = document.getElementById('maintenanceId').value;
-        
+
         const data = {
             client_id: document.getElementById('clientSelect').value || null,
             client_name: document.getElementById('clientName').value,
             client_phone: document.getElementById('clientPhone').value || null,
             client_email: document.getElementById('clientEmail').value || null,
-            
+
             device_type: document.getElementById('deviceType').value,
             device_brand: document.getElementById('deviceBrand').value || null,
             device_model: document.getElementById('deviceModel').value || null,
@@ -548,28 +548,28 @@ async function saveMaintenance() {
             device_description: document.getElementById('deviceDescription').value || null,
             device_accessories: document.getElementById('deviceAccessories').value || null,
             device_condition: document.getElementById('deviceCondition').value || null,
-            
+
             problem_description: document.getElementById('problemDescription').value,
             diagnosis: document.getElementById('diagnosis').value || null,
             work_done: document.getElementById('workDone').value || null,
-            
+
             reception_date: document.getElementById('receptionDate').value || null,
             estimated_completion_date: document.getElementById('estimatedCompletionDate').value || null,
             pickup_deadline: document.getElementById('pickupDeadline').value || null,
-            
+
             status: document.getElementById('status').value,
             priority: document.getElementById('priority').value,
             technician_id: document.getElementById('technicianId').value || null,
             warranty_days: parseInt(document.getElementById('warrantyDays').value) || 30,
-            
+
             estimated_cost: parseFloat(document.getElementById('estimatedCost').value) || null,
             final_cost: parseFloat(document.getElementById('finalCost').value) || null,
             advance_paid: parseFloat(document.getElementById('advancePaid').value) || 0,
-            
+
             notes: document.getElementById('notes').value || null,
             internal_notes: document.getElementById('internalNotes').value || null
         };
-        
+
         // Validation
         if (!data.client_name) {
             showError('Le nom du client est requis');
@@ -583,20 +583,20 @@ async function saveMaintenance() {
             showError('La description du problème est requise');
             return;
         }
-        
+
         let response;
         if (id) {
             response = await axios.put(`/api/maintenances/${id}`, data);
             showSuccess('Maintenance mise à jour avec succès');
         } else {
-            response = await axios.post('/api/maintenances', data);
+            response = await axios.post('/api/maintenances/', data);
             showSuccess('Maintenance créée avec succès');
         }
-        
+
         // Fermer le modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('maintenanceModal'));
         modal.hide();
-        
+
         // Recharger
         loadMaintenances();
         loadStats();
@@ -611,13 +611,13 @@ async function viewMaintenance(id) {
     try {
         const response = await axios.get(`/api/maintenances/${id}`);
         const m = response.data;
-        
+
         currentMaintenanceId = id;
-        
+
         const isOverdue = m.pickup_deadline && new Date(m.pickup_deadline) < new Date() && !m.pickup_date && ['completed', 'ready'].includes(m.status);
-        
+
         document.getElementById('maintenanceDetailTitle').innerHTML = `<i class="bi bi-info-circle me-2"></i>${m.maintenance_number}`;
-        
+
         document.getElementById('maintenanceDetailContent').innerHTML = `
             <div class="row">
                 <div class="col-md-6">
@@ -688,19 +688,19 @@ async function viewMaintenance(id) {
             </div>
             ` : ''}
         `;
-        
+
         // Configurer le bouton modifier
         document.getElementById('btnEditMaintenance').onclick = () => {
             bootstrap.Modal.getInstance(document.getElementById('maintenanceDetailModal')).hide();
             editMaintenance(id);
         };
-        
+
         // Afficher/masquer le bouton rappel
         const btnReminder = document.getElementById('btnSendReminder');
         if (btnReminder) {
             btnReminder.style.display = (m.status === 'ready' && m.client_phone) ? 'inline-block' : 'none';
         }
-        
+
         const modal = new bootstrap.Modal(document.getElementById('maintenanceDetailModal'));
         modal.show();
     } catch (error) {
@@ -712,7 +712,7 @@ async function viewMaintenance(id) {
 // Marquer comme récupéré
 async function markPickedUp(id) {
     if (!confirm('Confirmer que l\'appareil a été récupéré par le client ?')) return;
-    
+
     try {
         await axios.post(`/api/maintenances/${id}/pickup`);
         showSuccess('Maintenance marquée comme récupérée');
@@ -727,7 +727,7 @@ async function markPickedUp(id) {
 // Dégager la responsabilité
 async function waiveLiability(id) {
     if (!confirm('Êtes-vous sûr de vouloir dégager la responsabilité sur cette machine ?\n\nCette action est irréversible et marque la maintenance comme abandonnée.')) return;
-    
+
     try {
         await axios.post(`/api/maintenances/${id}/waive-liability`);
         showSuccess('Responsabilité dégagée - Maintenance marquée comme abandonnée');
@@ -742,11 +742,11 @@ async function waiveLiability(id) {
 // Envoyer un rappel
 async function sendReminder() {
     if (!currentMaintenanceId) return;
-    
+
     try {
         const response = await axios.post(`/api/maintenances/${currentMaintenanceId}/send-reminder`);
         const data = response.data;
-        
+
         if (data.maintenance?.client_phone) {
             // Ouvrir WhatsApp avec le message
             const phone = data.maintenance.client_phone.replace(/[\s\-\.]/g, '').trim();

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, date
 import json
 
 from ..database import get_db, User
-from ..database import Invoice, InvoiceItem, InvoicePayment, Quotation, Product, Client
+from ..database import Invoice, InvoiceItem, InvoicePayment, Quotation, Product, ProductVariant, Client
 from ..auth import get_current_user
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -321,6 +321,114 @@ async def get_customers_report(
                 {"month": "Nov", "new_customers": 5, "retained": 20},
                 {"month": "Oct", "new_customers": 7, "retained": 18}
             ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/stock-summary")
+async def get_stock_summary(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Récapitulatif de stock avec valeur et bénéfice potentiel"""
+    try:
+        # Récupérer tous les produits non archivés
+        products = db.query(Product).filter(Product.is_archived == False).all()
+        
+        total_products = 0
+        total_stock_value = 0.0
+        total_potential_profit = 0.0
+        total_purchase_cost = 0.0
+        products_with_stock = 0
+        products_out_of_stock = 0
+        
+        # Par catégorie
+        category_stats = {}
+        
+        for product in products:
+            # Déterminer si le produit a des variantes
+            has_variants = db.query(ProductVariant.variant_id).filter(
+                ProductVariant.product_id == product.product_id
+            ).first() is not None
+            
+            available_quantity = 0
+            product_price = float(product.price or 0)
+            product_purchase_price = float(product.purchase_price or 0)
+            
+            if has_variants:
+                # Pour les produits avec variantes, compter les variantes non vendues
+                available_quantity = db.query(func.count(ProductVariant.variant_id)).filter(
+                    ProductVariant.product_id == product.product_id,
+                    ProductVariant.is_sold == False
+                ).scalar() or 0
+                
+                # Pour les variantes, utiliser le prix de la variante si disponible, sinon le prix du produit
+                # On calcule une moyenne (simplifié - pourrait être amélioré)
+                variants = db.query(ProductVariant).filter(
+                    ProductVariant.product_id == product.product_id,
+                    ProductVariant.is_sold == False
+                ).all()
+                
+                if variants:
+                    variant_prices = [float(v.price or product_price) for v in variants if v.price is not None or product_price > 0]
+                    if variant_prices:
+                        product_price = sum(variant_prices) / len(variant_prices)
+            else:
+                # Pour les produits sans variantes, utiliser la quantité
+                available_quantity = int(product.quantity or 0)
+            
+            if available_quantity > 0:
+                products_with_stock += 1
+                stock_value = available_quantity * product_price
+                purchase_cost = available_quantity * product_purchase_price
+                potential_profit = stock_value - purchase_cost
+                
+                total_stock_value += stock_value
+                total_purchase_cost += purchase_cost
+                total_potential_profit += potential_profit
+                
+                # Statistiques par catégorie
+                category = product.category or "Non catégorisé"
+                if category not in category_stats:
+                    category_stats[category] = {
+                        "products_count": 0,
+                        "stock_value": 0.0,
+                        "potential_profit": 0.0,
+                        "quantity": 0
+                    }
+                category_stats[category]["products_count"] += 1
+                category_stats[category]["stock_value"] += stock_value
+                category_stats[category]["potential_profit"] += potential_profit
+                category_stats[category]["quantity"] += available_quantity
+            else:
+                products_out_of_stock += 1
+            
+            total_products += 1
+        
+        # Calculer la marge bénéficiaire en pourcentage
+        profit_margin = 0.0
+        if total_stock_value > 0:
+            profit_margin = (total_potential_profit / total_stock_value) * 100
+        
+        return {
+            "summary": {
+                "total_products": total_products,
+                "products_with_stock": products_with_stock,
+                "products_out_of_stock": products_out_of_stock,
+                "total_stock_value": round(total_stock_value, 2),
+                "total_purchase_cost": round(total_purchase_cost, 2),
+                "total_potential_profit": round(total_potential_profit, 2),
+                "profit_margin_percent": round(profit_margin, 2)
+            },
+            "by_category": {
+                category: {
+                    "products_count": stats["products_count"],
+                    "quantity": stats["quantity"],
+                    "stock_value": round(stats["stock_value"], 2),
+                    "potential_profit": round(stats["potential_profit"], 2)
+                }
+                for category, stats in category_stats.items()
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

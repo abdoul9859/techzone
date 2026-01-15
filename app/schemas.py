@@ -551,15 +551,7 @@ class SupplierQuickCreate(BaseModel):
     email: Optional[str] = None
     address: Optional[str] = None
     
-class SupplierResponse(BaseModel):
-    supplier_id: int
-    name: str
-    phone: Optional[str]
-    email: Optional[str]
-    address: Optional[str]
-    
-    class Config:
-        from_attributes = True
+
 
 # Schémas pour les factures fournisseur (version simplifiée)
 class SupplierInvoiceCreate(BaseModel):

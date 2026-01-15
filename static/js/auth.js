@@ -58,7 +58,7 @@ class AuthManager {
 
     async verifyAuth() {
         try {
-            const response = await (window.api || window.axios)({ url: '/api/auth/verify', method: 'GET' });
+            const response = await (window.api || window.axios)({ url: '/api/auth/verify/', method: 'GET' });
             this.userData = response.data;
             this.isAuthenticated = true;
             return true;
@@ -80,7 +80,7 @@ class AuthManager {
     async logout() {
         try {
             // Appeler l'endpoint de déconnexion pour effacer le cookie HttpOnly
-            await (window.api || window.axios)({ url: '/api/auth/logout', method: 'POST' });
+            await (window.api || window.axios)({ url: '/api/auth/logout/', method: 'POST' });
         } catch (error) {
             console.error('Erreur lors de la déconnexion:', error);
         } finally {
@@ -111,7 +111,7 @@ class AuthManager {
     async login(username, password) {
         try {
             const response = await (window.api || window.axios)({
-                url: '/api/auth/login',
+                url: '/api/auth/login/',
                 method: 'POST',
                 data: { username: username, password: password }
             });
@@ -124,9 +124,9 @@ class AuthManager {
             }
         } catch (error) {
             console.error('Erreur de connexion:', error);
-            return { 
-                success: false, 
-                error: error.response?.data?.detail || 'Erreur de connexion' 
+            return {
+                success: false,
+                error: error.response?.data?.detail || 'Erreur de connexion'
             };
         }
     }

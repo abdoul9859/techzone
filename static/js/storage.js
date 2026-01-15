@@ -2,15 +2,15 @@
 
 class ApiStorage {
     constructor() {
-        this.baseUrl = '/api/user-settings';
+        this.baseUrl = '/api/user-settings/';
         this.cache = new Map();
     }
 
     // ==================== USER SETTINGS ====================
 
-async setItem(key, value) {
+    async setItem(key, value) {
         try {
-            const response = await apiRequest(`${this.baseUrl}/${key}`, {
+            const response = await apiRequest(`${this.baseUrl}${key}`, {
                 method: 'POST',
                 data: { value }
             });
@@ -23,7 +23,7 @@ async setItem(key, value) {
 
     async getItem(key) {
         try {
-            const response = await apiRequest(`${this.baseUrl}/${key}`);
+            const response = await apiRequest(`${this.baseUrl}${key}`);
             let value = response.data;
             // API renvoie { data: ... } → déballer pour retourner directement la valeur
             if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'data')) {
@@ -38,7 +38,7 @@ async setItem(key, value) {
 
     async removeItem(key) {
         try {
-            await apiRequest(`${this.baseUrl}/${key}`, {
+            await apiRequest(`${this.baseUrl}${key}`, {
                 method: 'DELETE'
             });
         } catch (error) {
@@ -63,9 +63,9 @@ async setItem(key, value) {
 
     // ==================== SCAN HISTORY ====================
 
-async addScanHistory(scanData) {
+    async addScanHistory(scanData) {
         try {
-            const response = await apiRequest(`${this.baseUrl}/scan-history`, {
+            const response = await apiRequest(`${this.baseUrl}scan-history`, {
                 method: 'POST',
                 data: scanData
             });
@@ -78,7 +78,7 @@ async addScanHistory(scanData) {
 
     async getScanHistory(limit = 50) {
         try {
-            const response = await apiRequest(`${this.baseUrl}/scan-history?limit=${limit}`);
+            const response = await apiRequest(`${this.baseUrl}scan-history?limit=${limit}`);
             return response.data;
         } catch (error) {
             console.error('Erreur lors de la récupération de l\'historique:', error);
@@ -88,7 +88,7 @@ async addScanHistory(scanData) {
 
     async clearScanHistory() {
         try {
-            await apiRequest(`${this.baseUrl}/scan-history`, {
+            await apiRequest(`${this.baseUrl}scan-history`, {
                 method: 'DELETE'
             });
         } catch (error) {
@@ -99,9 +99,9 @@ async addScanHistory(scanData) {
 
     // ==================== CACHE ====================
 
-async setCacheItem(key, value, expiresInHours = 24) {
+    async setCacheItem(key, value, expiresInHours = 24) {
         try {
-            const response = await apiRequest(`${this.baseUrl}/cache/${key}`, {
+            const response = await apiRequest(`${this.baseUrl}cache/${key}`, {
                 method: 'POST',
                 data: {
                     value: value,
@@ -117,7 +117,7 @@ async setCacheItem(key, value, expiresInHours = 24) {
 
     async getCacheItem(key) {
         try {
-            const response = await apiRequest(`${this.baseUrl}/cache/${key}`);
+            const response = await apiRequest(`${this.baseUrl}cache/${key}`);
             return response.data;
         } catch (error) {
             console.error('Erreur lors de la récupération du cache:', error);
@@ -127,7 +127,7 @@ async setCacheItem(key, value, expiresInHours = 24) {
 
     async removeCacheItem(key) {
         try {
-            await apiRequest(`${this.baseUrl}/cache/${key}`, {
+            await apiRequest(`${this.baseUrl}cache/${key}`, {
                 method: 'DELETE'
             });
         } catch (error) {
@@ -165,7 +165,7 @@ async setCacheItem(key, value, expiresInHours = 24) {
     // Récupère uniquement les méthodes de paiement formatées côté serveur
     async getInvoicePaymentMethods() {
         try {
-            const response = await apiRequest(`${this.baseUrl}/invoice/payment-methods`);
+            const response = await apiRequest(`${this.baseUrl}invoice/payment-methods`);
             const data = response && response.data;
             if (Array.isArray(data)) return data;
             if (data && Array.isArray(data.data)) return data.data;
@@ -184,7 +184,7 @@ async setCacheItem(key, value, expiresInHours = 24) {
 const apiStorage = new ApiStorage();
 
 // Préchargement simple des paramètres au chargement
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', async function () {
     try {
         if (window.authManager && typeof window.authManager.verifyAuth === 'function') {
             await window.authManager.verifyAuth();

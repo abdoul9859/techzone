@@ -7,9 +7,11 @@
     .stat-card {
         transition: transform 0.2s;
     }
+
     .stat-card:hover {
         transform: translateY(-2px);
     }
+
     .info-label {
         font-weight: 600;
         color: #6c757d;
@@ -150,7 +152,8 @@
                         <div class="col-sm-6 info-label">Taux de paiement:</div>
                         <div class="col-sm-6">
                             <div class="progress">
-                                <div class="progress-bar bg-success" role="progressbar" id="paymentRateBar" style="width: 0%">
+                                <div class="progress-bar bg-success" role="progressbar" id="paymentRateBar"
+                                    style="width: 0%">
                                     <span id="paymentRateText">0%</span>
                                 </div>
                             </div>
@@ -251,7 +254,8 @@
             </div>
             <div class="modal-body">
                 <p>Êtes-vous sûr de vouloir supprimer ce fournisseur ?</p>
-                <p class="text-danger"><strong>Attention :</strong> Toutes les factures associées seront également supprimées.</p>
+                <p class="text-danger"><strong>Attention :</strong> Toutes les factures associées seront également
+                    supprimées.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
@@ -263,5 +267,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', path='js/supplier_detail.js') }}?v={{ ASSET_VERSION() }}"></script>
+<script src="/static/js/supplier_detail.js?v={{ ASSET_VERSION() }}"></script>
 {% endblock %}

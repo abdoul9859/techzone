@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Importer les fonctions WhatsApp\nconst whatsapp = require('/data/n8n/whatsapp.js');\n\n// Extraire les données du webhook\nconst data = $input.first().json.body || $input.first().json;\n\nconsole.log('Données rappel maintenance reçues:', JSON.stringify(data));\n\n// Le message est déjà formaté par l'application\nconst text = data.message || '';\nconst phone = whatsapp.normalizePhone(data.phone || '');\n\nreturn [{\n  json: {\n    phone: phone,\n    text: text\n  }\n}];"
+        "jsCode": "// Extraire les données du webhook\nconst data = $input.first().json.body || $input.first().json;\n\nconsole.log('Données rappel maintenance reçues:', JSON.stringify(data));\n\n// Le message est déjà formaté par l'application\nconst text = data.message || '';\nconst phone = String(data.phone || '').replace(/[^0-9]/g, '');\n\nreturn [{\n  json: {\n    phone: phone,\n    text: text\n  }\n}];"
       },
       "id": "extract-data-node",
       "name": "Extract Data",
@@ -28,7 +28,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.WHATSAPP_SERVICE_URL || 'http://whatsapp-service:3001' }}/api/sendText",
+        "url": "http://whatsapp-free:3002/send",
         "authentication": "none",
         "sendBody": true,
         "contentType": "json",

@@ -6,17 +6,17 @@ let currentSupplierId = null;
 let isEditMode = false;
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     console.log('DOM loaded, checking elements...');
-    
+
     // Vérifier et créer les éléments manquants si nécessaire
     ensureRequiredElements();
-    
+
     console.log('After ensuring elements:');
     console.log('suppliersContainer:', document.getElementById('suppliersContainer'));
     console.log('emptyState:', document.getElementById('emptyState'));
     console.log('suppliersList:', document.getElementById('suppliersList'));
-    
+
     // Même logique que products.js pour attendre l'auth prête (cookies HttpOnly)
     const ready = () => {
         const hasAuthManager = !!window.authManager;
@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // S'assurer que les éléments requis existent
 function ensureRequiredElements() {
     let container = document.getElementById('suppliersContainer');
-    
+
     // Si le container principal n'existe pas, le créer
     if (!container) {
         console.log('Creating suppliersContainer...');
@@ -42,7 +42,7 @@ function ensureRequiredElements() {
         container.className = 'mt-4';
         contentDiv.appendChild(container);
     }
-    
+
     // S'assurer que emptyState existe
     let emptyState = document.getElementById('emptyState');
     if (!emptyState) {
@@ -57,7 +57,7 @@ function ensureRequiredElements() {
         `;
         container.appendChild(emptyState);
     }
-    
+
     // S'assurer que suppliersList existe
     let suppliersList = document.getElementById('suppliersList');
     if (!suppliersList) {
@@ -68,7 +68,7 @@ function ensureRequiredElements() {
         suppliersList.style.display = 'none';
         container.appendChild(suppliersList);
     }
-    
+
     // S'assurer que resultsCount existe
     let resultsCount = document.getElementById('resultsCount');
     if (!resultsCount) {
@@ -108,7 +108,7 @@ function setupEventListeners() {
 async function loadSuppliers() {
     try {
         showLoading();
-        
+
         // Appel API via utilitaire avec timeout pour éviter les chargements infinis
         const response = await safeLoadData(
             () => axios.get('/api/suppliers/'),
@@ -118,7 +118,7 @@ async function loadSuppliers() {
                 errorMessage: 'Erreur lors du chargement des fournisseurs'
             }
         );
-        
+
         // L'API retourne un objet { suppliers, total, page, pages }
         const payload = response?.data ?? {};
         suppliers = Array.isArray(payload) ? payload : (payload.suppliers || []);
@@ -140,31 +140,31 @@ function displaySuppliers(suppliersToShow) {
     console.log('displaySuppliers called with:', suppliersToShow);
     console.log('Type of suppliersToShow:', typeof suppliersToShow);
     console.log('Is array:', Array.isArray(suppliersToShow));
-    
+
     // S'assurer que les éléments existent avant de les utiliser
     ensureRequiredElements();
-    
+
     const container = document.getElementById('suppliersContainer');
     const emptyState = document.getElementById('emptyState');
     const suppliersList = document.getElementById('suppliersList');
-    
-    console.log('Elements found:', { 
-        container: !!container, 
-        emptyState: !!emptyState, 
-        suppliersList: !!suppliersList 
+
+    console.log('Elements found:', {
+        container: !!container,
+        emptyState: !!emptyState,
+        suppliersList: !!suppliersList
     });
-    
+
     // Les éléments devraient maintenant exister grâce à ensureRequiredElements
     if (!container || !emptyState || !suppliersList) {
         console.error('Critical error: Required elements still missing after ensureRequiredElements');
         return;
     }
-    
+
     // Par défaut, utiliser le tableau global si aucun paramètre n'est fourni
     if (!Array.isArray(suppliersToShow)) {
         suppliersToShow = Array.isArray(suppliers) ? suppliers : [];
     }
-    
+
     if (suppliersToShow.length === 0) {
         emptyState.style.display = 'block';
         suppliersList.style.display = 'none';
@@ -300,13 +300,13 @@ function createSupplierCard(supplier) {
 // Filtrer les fournisseurs
 function filterSuppliers() {
     const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-    
+
     if (!searchTerm) {
         displaySuppliers(suppliers);
         return;
     }
 
-    const filtered = suppliers.filter(supplier => 
+    const filtered = suppliers.filter(supplier =>
         supplier.name.toLowerCase().includes(searchTerm) ||
         (supplier.contact_person && supplier.contact_person.toLowerCase().includes(searchTerm)) ||
         (supplier.email && supplier.email.toLowerCase().includes(searchTerm)) ||
@@ -348,7 +348,7 @@ function updateResultsCount(count) {
 function toggleForm() {
     const form = document.getElementById('supplierForm');
     const btn = document.getElementById('toggleFormBtn');
-    
+
     if (form.style.display === 'none') {
         form.style.display = 'block';
         btn.innerHTML = '<i class="bi bi-x-circle me-2"></i>Annuler';
@@ -370,10 +370,10 @@ function resetForm() {
     formContainer.style.display = 'none';
     btn.innerHTML = '<i class="bi bi-plus-circle me-2"></i>Ajouter un Fournisseur';
     btn.className = 'btn btn-success btn-lg shadow-sm';
-    
+
     formTitle.innerHTML = '<i class="bi bi-plus-circle me-2"></i>Ajouter un Fournisseur';
     submitBtnText.textContent = 'Ajouter';
-    
+
     isEditMode = false;
     currentSupplierId = null;
     document.getElementById('supplierId').value = '';
@@ -401,10 +401,10 @@ function editSupplier(id) {
     formContainer.style.display = 'block';
     btn.innerHTML = '<i class="bi bi-x-circle me-2"></i>Annuler';
     btn.className = 'btn btn-outline-secondary btn-lg shadow-sm';
-    
+
     formTitle.innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier le Fournisseur';
     submitBtnText.textContent = 'Mettre à jour';
-    
+
     isEditMode = true;
     currentSupplierId = id;
 
@@ -415,7 +415,7 @@ function editSupplier(id) {
 // Gérer la soumission du formulaire
 async function handleFormSubmit(e) {
     e.preventDefault();
-    
+
     const supplierData = {
         name: document.getElementById('name').value,
         contact_person: document.getElementById('contact_person').value,
@@ -432,11 +432,11 @@ async function handleFormSubmit(e) {
 
     try {
         let response;
-        
+
         if (isEditMode && currentSupplierId) {
-            response = await axios.put(`/api/suppliers/${currentSupplierId}`, supplierData);
+            response = await axios.put(`/api/suppliers/${currentSupplierId}/`, supplierData);
         } else {
-            response = await axios.post('/api/suppliers', supplierData);
+            response = await axios.post('/api/suppliers/', supplierData);
         }
 
         if (response.status && response.status >= 400) {
@@ -464,14 +464,14 @@ async function confirmDelete() {
     if (!currentSupplierId) return;
 
     try {
-        await axios.delete(`/api/suppliers/${currentSupplierId}`);
+        await axios.delete(`/api/suppliers/${currentSupplierId}/`);
 
         showSuccess('Fournisseur supprimé avec succès');
-        
+
         // Fermer la modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'));
         modal.hide();
-        
+
         // Recharger les données
         loadSuppliers();
         currentSupplierId = null;
@@ -490,14 +490,14 @@ function showLoading() {
 function hideLoading() {
     // Récupérer le conteneur
     const container = document.getElementById('suppliersContainer');
-    
+
     // Vérifier si le conteneur contient l'indicateur de chargement
     const loadingSpinner = container.querySelector('.spinner-border');
-    
+
     if (loadingSpinner) {
         // Vider le conteneur de chargement
         container.innerHTML = '';
-        
+
         // Recréer l'état vide dans le conteneur
         const emptyState = document.createElement('div');
         emptyState.id = 'emptyState';
@@ -509,7 +509,7 @@ function hideLoading() {
         `;
         container.appendChild(emptyState);
     }
-    
+
     // S'assurer que suppliersList existe en dehors du conteneur
     let suppliersList = document.getElementById('suppliersList');
     if (!suppliersList) {

@@ -6,7 +6,7 @@ let filteredMovements = [];
 let selectedProductId = null; // défini lors du choix d'une variante
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const ready = () => {
         const hasAuthManager = !!window.authManager;
         const hasUser = !!(hasAuthManager && window.authManager.userData && Object.keys(window.authManager.userData).length);
@@ -64,7 +64,7 @@ async function loadStats() {
             if (!end) end = todayStr;
         }
 
-        const url = `/api/stock-movements/stats?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`;
+        const url = `/api/stock-movements/stats/?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`;
         const { data } = await axios.get(url);
         document.getElementById('totalMovements').textContent = data.total_movements ?? '0';
         document.getElementById('todayEntries').textContent = String(data.today_entries ?? '0');
@@ -108,10 +108,10 @@ function displayMovements() {
     tbody.innerHTML = movementsToShow.map(movement => {
         const productName = movement.product_name || 'Produit supprimé';
         // Extraire IMEI / référence depuis les notes si présent (format libre)
-        const imeiFromNotes = movement.notes && movement.notes.includes('IMEI:') 
+        const imeiFromNotes = movement.notes && movement.notes.includes('IMEI:')
             ? movement.notes.split('IMEI:')[1].split(/[;\n]/)[0].trim()
             : null;
-        const refFromNotes = movement.notes && movement.notes.includes('REF:') 
+        const refFromNotes = movement.notes && movement.notes.includes('REF:')
             ? movement.notes.split('REF:')[1].split(/[;\n]/)[0].trim()
             : null;
         return `
@@ -246,21 +246,21 @@ function filterMovements() {
 function updatePagination() {
     const totalPages = Math.ceil(filteredMovements.length / itemsPerPage);
     const paginationContainer = document.getElementById('pagination-container');
-    
+
     if (!paginationContainer || totalPages <= 1) {
         if (paginationContainer) paginationContainer.innerHTML = '';
         return;
     }
 
     let paginationHTML = '<nav><ul class="pagination justify-content-center">';
-    
+
     // Bouton précédent
     paginationHTML += `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="changePage(${currentPage - 1})">Précédent</a>
         </li>
     `;
-    
+
     // Numéros de page
     for (let i = 1; i <= totalPages; i++) {
         if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
@@ -273,14 +273,14 @@ function updatePagination() {
             paginationHTML += '<li class="page-item disabled"><span class="page-link">...</span></li>';
         }
     }
-    
+
     // Bouton suivant
     paginationHTML += `
         <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="changePage(${currentPage + 1})">Suivant</a>
         </li>
     `;
-    
+
     paginationHTML += '</ul></nav>';
     paginationContainer.innerHTML = paginationHTML;
 }
@@ -311,7 +311,7 @@ async function searchVariants() {
     }
 
     try {
-        const response = await fetch(`/api/stock-movements/search-variants?q=${encodeURIComponent(searchTerm)}`, {
+        const response = await fetch(`/api/stock-movements/search-variants/?q=${encodeURIComponent(searchTerm)}`, {
             credentials: 'include'
         });
 
@@ -330,7 +330,7 @@ async function searchVariants() {
 // Afficher les résultats de recherche de variantes
 function displayVariantSearchResults(variants) {
     const resultsDiv = document.getElementById('variantSearchResults');
-    
+
     if (variants.length === 0) {
         resultsDiv.innerHTML = '<div class="alert alert-warning">Aucune variante trouvée</div>';
         return;
@@ -402,10 +402,10 @@ async function saveMovement() {
         await preloadProducts();
         await loadMovements();
         await loadStats();
-        
+
         showSuccess('Mouvement de stock créé avec succès');
         selectedProductId = null;
-        
+
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la sauvegarde du mouvement');
@@ -427,12 +427,12 @@ async function deleteMovement(movementId) {
     }
 
     try {
-        await axios.delete(`/api/stock-movements/${movementId}`);
+        await axios.delete(`/api/stock-movements/${movementId}/`);
 
         await loadMovements();
         await loadStats();
         showSuccess('Mouvement supprimé avec succès');
-        
+
     } catch (error) {
         console.error('Erreur lors de la suppression:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la suppression du mouvement');

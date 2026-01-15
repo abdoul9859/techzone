@@ -55,13 +55,13 @@ const PAGE_SIZE = 20;
 let lowStockThreshold = 3;
 
 // Si le template a préchargé des stats, les utiliser pour accélérer l'init
-(function bootstrapPreloadedStats(){
-  try {
-    if (window.__preloadedAllowedConditions && Array.isArray(window.__preloadedAllowedConditions.options)) {
-      allowedConditions = window.__preloadedAllowedConditions.options;
-      defaultCondition = window.__preloadedAllowedConditions.default || allowedConditions[0] || defaultCondition;
-    }
-  } catch (e) { /* noop */ }
+(function bootstrapPreloadedStats() {
+    try {
+        if (window.__preloadedAllowedConditions && Array.isArray(window.__preloadedAllowedConditions.options)) {
+            allowedConditions = window.__preloadedAllowedConditions.options;
+            defaultCondition = window.__preloadedAllowedConditions.default || allowedConditions[0] || defaultCondition;
+        }
+    } catch (e) { /* noop */ }
 })();
 
 // Vérifie que chaque carte variante remplit les attributs de catégorie requis
@@ -116,7 +116,7 @@ let categoryIdByName = {};
 let currentCategoryAttributes = []; // [{attribute_id,name,type,required,values:[{value_id,value}]}]
 
 // Fonction de debug globale
-window.debugCategories = function() {
+window.debugCategories = function () {
     console.log('=== DEBUG CATEGORIES ===');
     console.log('categoryConfigByName:', categoryConfigByName);
     console.log('Nombre de catégories:', Object.keys(categoryConfigByName).length);
@@ -128,7 +128,7 @@ window.debugCategories = function() {
 
 async function loadConditions() {
     try {
-        const { data } = await axios.get('/api/products/settings/conditions');
+        const { data } = await axios.get('/api/products/settings/conditions/');
         if (data && Array.isArray(data.options)) {
             allowedConditions = data.options;
             defaultCondition = data.default || data.options[0] || defaultCondition;
@@ -198,7 +198,7 @@ function attachFilterListeners() {
     }
     const categorySel = document.getElementById('categoryFilter');
     if (categorySel) {
-        categorySel.addEventListener('change', function() {
+        categorySel.addEventListener('change', function () {
             currentFilters.category = this.value;
             currentPage = 1;
             loadProducts();
@@ -206,7 +206,7 @@ function attachFilterListeners() {
     }
     const condFilter = document.getElementById('conditionFilter');
     if (condFilter) {
-        condFilter.addEventListener('change', function() {
+        condFilter.addEventListener('change', function () {
             currentFilters.condition = this.value || '';
             currentPage = 1;
             loadProducts();
@@ -214,7 +214,7 @@ function attachFilterListeners() {
     }
     const sourceFilter = document.getElementById('sourceFilter');
     if (sourceFilter) {
-        sourceFilter.addEventListener('change', function() {
+        sourceFilter.addEventListener('change', function () {
             currentFilters.source = this.value || null;
             currentPage = 1;
             loadProducts();
@@ -259,7 +259,7 @@ function attachFilterListeners() {
         currentFilters.has_variants = hasVariantsChk.checked ? true : null;
         currentPage = 1; loadProducts();
     });
-    
+
     // Filtre pour afficher les produits archivés
     const includeArchivedChk = document.getElementById('includeArchivedFilter');
     if (includeArchivedChk) includeArchivedChk.addEventListener('change', () => {
@@ -278,7 +278,7 @@ async function initProductsPage() {
     console.log('🚀 products.js - Initialisation: chargement des produits, états et catégories...');
 
     // Si le template a préchargé les catégories, peupler rapidement la config
-    (function hydrateCategoriesFromPreload(){
+    (function hydrateCategoriesFromPreload() {
         try {
             const stats = window.__preloadedProductStats || {};
             const cats = Array.isArray(stats.categories) ? stats.categories : [];
@@ -293,7 +293,7 @@ async function initProductsPage() {
                     if (cid != null) categoryIdByName[name] = cid;
                 });
             }
-        } catch(e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
     })();
 
     loadProducts();
@@ -305,7 +305,7 @@ async function initProductsPage() {
         })
         .catch(() => {
             // fallback: si preload a fourni allowedConditions, on a déjà de quoi remplir
-            try { populateProductConditionSelect(); populateConditionFilter(); } catch(e) {}
+            try { populateProductConditionSelect(); populateConditionFilter(); } catch (e) { }
         });
 
     // Charger les catégories (si pas déjà hydratées) ou pour rafraîchir
@@ -328,12 +328,12 @@ async function initProductsPage() {
             if (input) input.value = q;
             currentFilters.search = q;
             currentPage = 1;
-            try { loadProducts(); } catch(e) {}
+            try { loadProducts(); } catch (e) { }
         }
         if (selectedId) {
-            try { viewProduct(Number(selectedId)); } catch(e) {}
+            try { viewProduct(Number(selectedId)); } catch (e) { }
         }
-    } catch(e) { /* ignore */ }
+    } catch (e) { /* ignore */ }
 
     attachFilterListeners();
 }
@@ -379,7 +379,7 @@ function wireSortHeaderButtons() {
     });
 }
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Autoriser aussi les sessions basées sur cookie (userData rempli après /api/auth/verify)
     const ready = () => {
         const hasAuthManager = !!window.authManager;
@@ -435,7 +435,7 @@ function resetFilters() {
 
 async function loadProducts() {
     const tbody = document.getElementById('productsTableBody');
-    
+
     try {
         // Ne pas afficher d'indicateur de chargement pour une expérience instantanée
         if (tbody) {
@@ -448,7 +448,7 @@ async function loadProducts() {
             sort_by: currentSort.by,
             sort_dir: currentSort.dir
         });
-        
+
         if (currentFilters.search) params.append('search', currentFilters.search);
         if (currentFilters.category) params.append('category', currentFilters.category);
         if (currentFilters.condition) params.append('condition', currentFilters.condition);
@@ -459,31 +459,33 @@ async function loadProducts() {
         if (currentFilters.has_barcode != null) params.append('has_barcode', String(currentFilters.has_barcode));
         if (currentFilters.in_stock != null) params.append('in_stock', String(currentFilters.in_stock));
         if (currentFilters.has_variants != null) params.append('has_variants', String(currentFilters.has_variants));
-        if (currentFilters.include_archived) params.append('include_archived', 'true');
-        
+        // Always include archived when searching, so matches appear with an "Archivé" badge
+        const isSearching = !!(currentFilters.search && String(currentFilters.search).trim().length > 0);
+        if (currentFilters.include_archived || isSearching) params.append('include_archived', 'true');
+
         // Utiliser safeLoadData pour éviter les chargements infinis
         const response = await safeLoadData(
-            () => apiRequest(`/api/products/paginated?${params}`),
+            () => apiRequest(`/api/products/paginated/?${params}`),
             {
                 timeout: 8000,
                 fallbackData: { items: [], total: 0 },
                 errorMessage: 'Erreur lors du chargement des produits'
             }
         );
-        
+
         const payload = response.data || { items: [], total: 0 };
         const products = Array.isArray(payload.items) ? payload.items : [];
         const total = Number(payload.total || 0);
-        
+
         displayProducts(products);
-        
+
         // Pagination basée sur le total retourné par l'API
         totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
         updatePagination();
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement des produits:', error);
-        
+
         // Afficher un message d'erreur dans le tableau
         if (tbody) {
             tbody.innerHTML = `
@@ -495,7 +497,7 @@ async function loadProducts() {
                 </tr>
             `;
         }
-        
+
         showAlert('Erreur lors du chargement des produits', 'danger');
     }
 }
@@ -511,9 +513,9 @@ async function canModifyProduct(productId) {
     if (productModificationCache.has(productId)) {
         return productModificationCache.get(productId);
     }
-    
+
     try {
-        const response = await apiRequest(`/api/products/id/${productId}/can-modify`);
+        const response = await apiRequest(`/api/products/id/${productId}/can-modify/`);
         const canModify = response.data?.can_modify || false;
         // Mettre en cache pour 5 minutes
         productModificationCache.set(productId, canModify);
@@ -531,9 +533,9 @@ async function loadSoldVariants(productId) {
     if (soldVariantsCache.has(productId)) {
         return soldVariantsCache.get(productId);
     }
-    
+
     try {
-        const response = await apiRequest(`/api/products/id/${productId}/variants/sold`);
+        const response = await apiRequest(`/api/products/id/${productId}/variants/sold/`);
         const soldVariants = response.data?.sold_variants || [];
         // Mettre en cache pour 5 minutes
         soldVariantsCache.set(productId, soldVariants);
@@ -547,19 +549,24 @@ async function loadSoldVariants(productId) {
 
 function displayProducts(products) {
     const tbody = document.getElementById('productsTableBody');
-    
+
     if (products.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Aucun produit trouvé</td></tr>';
         return;
     }
-    
+
     let html = '';
     products.forEach(product => {
         const hasVariants = (product.has_variants != null) ? !!product.has_variants : (product.variants && product.variants.length > 0);
         const availableVariants = (product.variants_available != null) ? Number(product.variants_available) : (
-            (Array.isArray(product.variants) ? product.variants.filter(v => !v.is_sold).length : 0)
+            (Array.isArray(product.variants) ? product.variants.filter(v => !v.is_sold).reduce((acc, v) => {
+                const q = v && v.quantity;
+                if (q == null || q === undefined) return acc + 1;
+                const numQ = Number(q);
+                return acc + (Number.isFinite(numQ) && numQ > 0 ? numQ : 1);
+            }, 0) : 0)
         );
-        const stockDisplay = hasVariants ? `${availableVariants} variantes` : `${product.quantity} unités`;
+        const stockDisplay = hasVariants ? `${availableVariants} unités` : `${product.quantity} unités`;
         const barcodeDisplay = product.barcode || (hasVariants ? 'Variantes' : 'Aucun');
 
         // Badge d'état au niveau produit: seulement si pas de variantes
@@ -589,7 +596,7 @@ function displayProducts(products) {
             }
             const parts = Object.entries(counts)
                 .filter(([, n]) => n > 0)
-                .map(([c, n]) => `<span class="badge rounded-pill bg-light text-dark border me-1">${c.charAt(0).toUpperCase()+c.slice(1)}: ${n}</span>`);
+                .map(([c, n]) => `<span class="badge rounded-pill bg-light text-dark border me-1">${c.charAt(0).toUpperCase() + c.slice(1)}: ${n}</span>`);
             conditionBadges = parts.length ? `<div class="mt-1">${parts.join('')}</div>` : '';
         }
         // Normaliser le chemin de l'image
@@ -606,7 +613,7 @@ function displayProducts(products) {
                 }
             }
         }
-        
+
         html += `
             <tr>
                 <td>
@@ -671,9 +678,9 @@ function displayProducts(products) {
             </tr>
         `;
     });
-    
+
     tbody.innerHTML = html;
-    
+
     // Vérifier et désactiver les boutons pour les produits utilisés
     // Les produits peuvent toujours être modifiés maintenant
     // checkAndDisableProductButtons(products);
@@ -686,14 +693,14 @@ async function checkAndDisableProductButtons(products) {
             if (!canModify) {
                 const editBtn = document.getElementById(`edit-btn-${product.product_id}`);
                 const deleteBtn = document.getElementById(`delete-btn-${product.product_id}`);
-                
+
                 if (editBtn) {
                     editBtn.disabled = true;
                     editBtn.classList.remove('btn-outline-primary');
                     editBtn.classList.add('btn-outline-secondary');
                     editBtn.title = 'Ce produit ne peut pas être modifié car il est utilisé dans des factures, devis ou bons de livraison';
                 }
-                
+
                 if (deleteBtn) {
                     deleteBtn.disabled = true;
                     deleteBtn.classList.remove('btn-outline-danger');
@@ -708,7 +715,7 @@ async function checkAndDisableProductButtons(products) {
 }
 
 // Injecte les boutons de tri dans l'en-tête du tableau si présent
-(function enhanceTableHeaderWithSort(){
+(function enhanceTableHeaderWithSort() {
     try {
         const nameTh = document.querySelector('#productsTable thead th[data-col="name"]');
         const catTh = document.querySelector('#productsTable thead th[data-col="category"]');
@@ -880,15 +887,15 @@ async function loadCategories() {
             console.log('⚠️ loadCategories - Aucun format reconnu, categories = []');
             categories = [];
         }
-        
+
         console.log('📝 loadCategories - Processed categories:', categories);
         console.log('📏 loadCategories - categories.length:', categories.length);
-        
+
         // Build config map and names list
         categoryConfigByName = {};
         categoryIdByName = {};
         const categoryNames = [];
-        
+
         if (categories.length === 0) {
             console.warn('loadCategories - Aucune catégorie trouvée, ajout de catégories par défaut');
             // Ajouter quelques catégories par défaut si l'API ne retourne rien
@@ -902,7 +909,7 @@ async function loadCategories() {
             ];
             categories = defaultCategories;
         }
-        
+
         categories.forEach(c => {
             if (typeof c === 'string') {
                 categoryConfigByName[c] = { requires_variants: false };
@@ -972,7 +979,7 @@ function openProductModal(productId = null) {
     } catch (e) {
         // ignore si Bootstrap non chargé (cas improbable)
     }
-    
+
     if (productId) {
         title.innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier le Produit';
         loadProductForEdit(productId);
@@ -1012,7 +1019,7 @@ async function loadProductForEdit(productId) {
     try {
         const response = await apiRequest(`/api/products/id/${productId}`);
         const product = response.data;
-        
+
         // Remplir le formulaire
         document.getElementById('productId').value = product.product_id;
         document.getElementById('productName').value = product.name;
@@ -1026,7 +1033,7 @@ async function loadProductForEdit(productId) {
         document.getElementById('productDescription').value = product.description || '';
         document.getElementById('productNotes').value = product.notes || '';
         populateProductConditionSelect(product.condition || '');
-        
+
         // Load and display existing product image
         if (product.image_path) {
             const preview = document.getElementById('productImagePreview');
@@ -1048,8 +1055,8 @@ async function loadProductForEdit(productId) {
         loadVariants(product.variants || [], soldVariantIds);
 
         // S'assurer que le modal est visible
-        try { bootstrap.Modal.getOrCreateInstance(document.getElementById('productModal')).show(); } catch(e) {}
-        
+        try { bootstrap.Modal.getOrCreateInstance(document.getElementById('productModal')).show(); } catch (e) { }
+
     } catch (error) {
         console.error('Erreur lors du chargement du produit:', error);
         showAlert('Erreur lors du chargement du produit', 'danger');
@@ -1059,18 +1066,18 @@ async function loadProductForEdit(productId) {
 function loadVariants(variants, soldVariantIds = new Set()) {
     const variantsList = document.getElementById('variantsList');
     variantCounter = 0;
-    
+
     if (variants.length === 0) {
         variantsList.innerHTML = '<p class="text-muted text-center">Aucune variante ajoutée</p>';
         return;
     }
-    
+
     let html = '';
     variants.forEach(variant => {
         const isSold = soldVariantIds.has(variant.variant_id);
         html += createVariantForm(variant, variantCounter++, isSold);
     });
-    
+
     variantsList.innerHTML = html;
     // Injecter les attributs de catégorie dans chaque carte déjà rendue
     // Seulement si les attributs de catégorie sont déjà chargés ET pas encore rendus
@@ -1082,7 +1089,7 @@ function loadVariants(variants, soldVariantIds = new Set()) {
             }
         }
     }
-    
+
     // Pré-remplir les attributs de catégorie avec les valeurs existantes
     variants.forEach((variant, index) => {
         if (variant.attributes && variant.attributes.length > 0) {
@@ -1098,7 +1105,7 @@ function loadVariants(variants, soldVariantIds = new Set()) {
 function onCategoryChange() {
     const category = document.getElementById('productCategory').value;
     console.log('onCategoryChange - Catégorie:', `"${category}"`, 'Config:', categoryConfigByName[category]);
-    
+
     // Si aucune catégorie sélectionnée, afficher le mode produit simple par défaut
     if (!category || category === '') {
         console.log('onCategoryChange - Aucune catégorie sélectionnée, mode produit simple par défaut');
@@ -1109,7 +1116,7 @@ function onCategoryChange() {
         renderCategoryAttributesPreview([]);
         return;
     }
-    
+
     // Vérification de sécurité : si la config n'est pas encore chargée, utiliser un comportement par défaut
     if (Object.keys(categoryConfigByName).length === 0) {
         console.log('onCategoryChange - Config vide, utilisation du comportement par défaut (pas de variantes)');
@@ -1121,9 +1128,9 @@ function onCategoryChange() {
         renderCategoryAttributesPreview([]);
         return;
     }
-    
+
     const requiresVariants = !!(categoryConfigByName[category] && categoryConfigByName[category].requires_variants);
-    
+
     if (requiresVariants) {
         // Masquer le champ code-barres produit et afficher le message d'aide
         hideProductBarcodeField();
@@ -1155,7 +1162,7 @@ function hideProductBarcodeField() {
     const barcodeInput = document.getElementById('productBarcode');
     const helpText = document.getElementById('barcodeHelpText');
     const genBtn = document.getElementById('productBarcodeGenBtn');
-    
+
     barcodeInput.disabled = true;
     barcodeInput.style.display = 'none';
     if (genBtn) genBtn.style.display = 'none';
@@ -1167,7 +1174,7 @@ function showProductBarcodeField() {
     const barcodeInput = document.getElementById('productBarcode');
     const helpText = document.getElementById('barcodeHelpText');
     const genBtn = document.getElementById('productBarcodeGenBtn');
-    
+
     barcodeInput.disabled = false;
     barcodeInput.style.display = 'block';
     if (genBtn) genBtn.style.display = 'inline-block';
@@ -1216,11 +1223,11 @@ function generateVariantBarcode(index) {
 
 function addVariant() {
     const variantsList = document.getElementById('variantsList');
-    
+
     if (variantsList.innerHTML.includes('Aucune variante')) {
         variantsList.innerHTML = '';
     }
-    
+
     const variantHtml = createVariantForm(null, variantCounter++, false);
     variantsList.insertAdjacentHTML('beforeend', variantHtml);
     // Après insertion, injecter les attributs de catégorie pour cette variante
@@ -1242,12 +1249,12 @@ function createVariantForm(variant = null, index, isSold = false) {
         quantity: null,
         attributes: []
     };
-    
-    
+
+
     const disabledAttr = isSold ? 'disabled' : '';
     const soldBadge = isSold ? '<span class="badge bg-warning ms-2">VENDUE</span>' : '';
     const soldClass = isSold ? 'border-warning' : '';
-    
+
     return `
         <div class="card mb-3 variant-card ${soldClass}" data-variant-index="${index}">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -1283,7 +1290,7 @@ function createVariantForm(variant = null, index, isSold = false) {
                         <label class="form-label">État de la variante</label>
                         <select class="form-select" name="variant_${index}_condition" data-variant-condition="1" ${disabledAttr}>
                             <option value="">(Hériter du produit)</option>
-                            ${allowedConditions.map(c => `<option value="${c}" ${variantData.condition === c ? 'selected' : ''}>${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('')}
+                            ${allowedConditions.map(c => `<option value="${c}" ${variantData.condition === c ? 'selected' : ''}>${c.charAt(0).toUpperCase() + c.slice(1)}</option>`).join('')}
                         </select>
                     </div>
                     <div class="col-md-4">
@@ -1319,7 +1326,7 @@ function createVariantForm(variant = null, index, isSold = false) {
 function removeVariant(button) {
     const variantCard = button.closest('.variant-card');
     variantCard.remove();
-    
+
     // Vérifier s'il reste des variantes
     const variantsList = document.getElementById('variantsList');
     if (variantsList.children.length === 0) {
@@ -1331,7 +1338,7 @@ function removeVariant(button) {
 function serializeVariants() {
     const variants = [];
     const variantCards = document.querySelectorAll('.variant-card');
-    
+
     variantCards.forEach(card => {
         const index = card.dataset.variantIndex;
         const imeiInput = card.querySelector(`input[name="variant_${index}_imei"]`);
@@ -1339,7 +1346,7 @@ function serializeVariants() {
         const condSelect = card.querySelector(`select[name="variant_${index}_condition"]`);
         const priceInput = card.querySelector(`input[name="variant_${index}_price"]`);
         const quantityInput = card.querySelector(`input[name="variant_${index}_quantity"]`);
-        
+
         if (imeiInput && imeiInput.value.trim()) {
             const variant = {
                 imei_serial: imeiInput.value.trim(),
@@ -1349,7 +1356,7 @@ function serializeVariants() {
                 quantity: (quantityInput && String(quantityInput.value || '').trim() !== '') ? (parseInt(quantityInput.value, 10) || 0) : null,
                 attributes: []
             };
-            
+
 
             // Sérialiser les attributs de catégorie (nouveau système)
             const catAttrInputs = card.querySelectorAll('[data-variant-attr-input="1"]');
@@ -1376,11 +1383,11 @@ function serializeVariants() {
                     variant.attributes.push({ attribute_name: name, attribute_value: val });
                 });
             });
-            
+
             variants.push(variant);
         }
     });
-    
+
     return variants;
 }
 
@@ -1390,11 +1397,11 @@ async function saveProduct() {
             showAlert('Veuillez remplir tous les champs obligatoires', 'warning');
             return;
         }
-        
+
         const productId = document.getElementById('productId').value;
         const selectedCategory = document.getElementById('productCategory').value;
         const requiresVariants = !!(categoryConfigByName[selectedCategory] && categoryConfigByName[selectedCategory].requires_variants);
-        
+
         // Validation stricte des attributs requis par variante si la catégorie l'exige
         if (requiresVariants) {
             const validation = validateVariantCategoryAttributes();
@@ -1433,7 +1440,7 @@ async function saveProduct() {
             // Supprimer complètement la clé pour éviter la validation côté backend
             delete productData.condition;
         }
-        
+
         let response;
         if (productId) {
             response = await apiRequest(`/api/products/id/${productId}`, {
@@ -1441,7 +1448,7 @@ async function saveProduct() {
                 data: productData
             });
         } else {
-            response = await apiRequest('/api/products', {
+            response = await apiRequest('/api/products/', {
                 method: 'POST',
                 data: productData
             });
@@ -1471,15 +1478,15 @@ async function saveProduct() {
         const modal = bootstrap.Modal.getInstance(document.getElementById('productModal'));
         modal.hide();
         loadProducts();
-        
+
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         let errorMessage = 'Erreur lors de la sauvegarde du produit';
-        
+
         if (error.response && error.response.data && error.response.data.detail) {
             errorMessage = error.response.data.detail;
         }
-        
+
         showAlert(errorMessage, 'danger');
     }
 }
@@ -1488,7 +1495,15 @@ async function viewProduct(productId) {
     try {
         const response = await apiRequest(`/api/products/id/${productId}`);
         const product = response.data;
-        
+
+        const availableVariantsCount = (product.variants || []).filter(v => !v.is_sold).reduce((acc, v) => {
+            const q = v && v.quantity;
+            if (q == null || q === undefined) return acc + 1;
+            const numQ = Number(q);
+            return acc + (Number.isFinite(numQ) && numQ > 0 ? numQ : 1);
+        }, 0);
+        const totalStock = (product.variants && product.variants.length > 0) ? availableVariantsCount : product.quantity;
+
         let html = `
             <div class="row">
                 ${product.image_path ? `
@@ -1507,7 +1522,7 @@ async function viewProduct(productId) {
                         <tr><td><strong>Prix unitaire:</strong></td><td>${formatCurrency(product.price)}</td></tr>
                         ${window.authManager && window.authManager.isAdmin() ? `<tr><td><strong>Prix d'achat:</strong></td><td>${formatCurrency(product.purchase_price)}</td></tr>` : ''}
                         <tr><td><strong>État:</strong></td><td>${product.condition || '-'}</td></tr>
-                        <tr><td><strong>Stock:</strong></td><td>${product.quantity} unités</td></tr>
+                        <tr><td><strong>Stock:</strong></td><td>${totalStock} unités</td></tr>
                         <tr><td><strong>Code-barres:</strong></td><td>${product.barcode || '-'}</td></tr>
                     </table>
                 </div>
@@ -1519,7 +1534,7 @@ async function viewProduct(productId) {
                 </div>
             </div>
         `;
-        
+
         if (product.variants && product.variants.length > 0) {
             const availableCount = (product.variants || []).filter(v => !v.is_sold).length;
             html += `
@@ -1538,15 +1553,15 @@ async function viewProduct(productId) {
                         </thead>
                         <tbody>
             `;
-            
+
             product.variants.forEach(variant => {
                 let attributesText = '';
                 if (variant.attributes && variant.attributes.length > 0) {
-                    attributesText = variant.attributes.map(attr => 
+                    attributesText = variant.attributes.map(attr =>
                         `${attr.attribute_name}: ${attr.attribute_value}`
                     ).join(', ');
                 }
-                
+
                 html += `
                     <tr>
                         <td><code>${variant.imei_serial}</code></td>
@@ -1581,12 +1596,12 @@ async function viewProduct(productId) {
                     </tr>
                 `;
             });
-            
+
             html += '</tbody></table></div>';
         }
-        
+
         document.getElementById('productDetailsContent').innerHTML = html;
-        
+
         const modal = new bootstrap.Modal(document.getElementById('productDetailsModal'));
         modal.show();
 
@@ -1611,7 +1626,7 @@ async function viewProduct(productId) {
                 console.warn('Erreur rendu codes-barres variantes:', e);
             }
         }, 50);
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement des détails:', error);
         showAlert('Erreur lors du chargement des détails du produit', 'danger');
@@ -1666,7 +1681,7 @@ function printVariantBarcode(barcodeValue, productName) {
         </style>
     </head><body>
         <div class="barcode-container">
-            <div class="label">${(productName || '').replace(/</g,'&lt;')}</div>
+            <div class="label">${(productName || '').replace(/</g, '&lt;')}</div>
             <svg id="to-print"></svg>
         </div>
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
@@ -1686,11 +1701,11 @@ async function deleteProduct(productId) {
             showAlert('Ce produit ne peut pas être supprimé car il est déjà utilisé dans des factures, devis ou bons de livraison', 'warning');
             return;
         }
-        
+
         if (!confirm('Êtes-vous sûr de vouloir supprimer ce produit ? Cette action est irréversible.')) {
             return;
         }
-        
+
         await apiRequest(`/api/products/id/${productId}`, { method: 'DELETE' });
         showAlert('Produit supprimé avec succès', 'success');
         loadProducts();
@@ -1903,34 +1918,34 @@ function renderCategoryAttributesPreview(attrs) {
 function renderVariantCategoryAttributes(index) {
     const host = document.getElementById(`cat_attributes_${index}`);
     if (!host) return;
-    
+
     console.log(`[DEBUG] renderVariantCategoryAttributes(${index}) - host:`, host);
     console.log(`[DEBUG] currentCategoryAttributes:`, currentCategoryAttributes);
-    
+
     if (!currentCategoryAttributes || currentCategoryAttributes.length === 0) {
         host.innerHTML = '<p class="text-muted small mb-0">Aucun attribut pour cette catégorie</p>';
         return;
     }
-    
+
     // Vérifier si les attributs sont déjà rendus pour éviter les duplications
     const existingInputs = host.querySelectorAll('[data-variant-attr-input="1"]');
     console.log(`[DEBUG] existingInputs.length:`, existingInputs.length);
     console.log(`[DEBUG] host.innerHTML before:`, host.innerHTML);
-    
+
     if (existingInputs.length > 0) {
         // Les attributs sont déjà rendus, ne pas les dupliquer
         console.log(`[DEBUG] Attributs déjà rendus, skip pour variante ${index}`);
         return;
     }
-    
+
     // Vider complètement le contenu avant de le remplir
     host.innerHTML = '';
-    
+
     const fields = currentCategoryAttributes.map((a, i) => renderAttrInput(index, a, i)).join('');
     host.innerHTML = fields;
-    
+
     console.log(`[DEBUG] host.innerHTML after:`, host.innerHTML);
-    
+
 }
 
 
@@ -1989,9 +2004,9 @@ function renderAttrInput(index, attr, order) {
 function prefillVariantCategoryAttributes(index, variantAttributes = []) {
     const card = document.querySelector(`.variant-card[data-variant-index="${index}"]`);
     if (!card || !variantAttributes || variantAttributes.length === 0) return;
-    
+
     console.log(`[DEBUG] prefillVariantCategoryAttributes(${index}) - variantAttributes:`, variantAttributes);
-    
+
     // Créer une map des attributs existants par nom
     const attrMap = {};
     variantAttributes.forEach(attr => {
@@ -1999,24 +2014,24 @@ function prefillVariantCategoryAttributes(index, variantAttributes = []) {
         if (!attrMap[name]) attrMap[name] = [];
         attrMap[name].push(attr.attribute_value);
     });
-    
+
     console.log(`[DEBUG] attrMap:`, attrMap);
-    
+
     // Pré-remplir chaque input d'attribut de catégorie
     const inputs = card.querySelectorAll('[data-variant-attr-input="1"]');
     inputs.forEach(input => {
         const attrName = input.dataset.attrName;
         const inputType = input.dataset.inputType;
         const values = attrMap[attrName];
-        
+
         if (!values || values.length === 0) return;
-        
+
         console.log(`[DEBUG] Pré-remplissage ${attrName} (${inputType}) avec:`, values);
-        
+
         switch (inputType) {
             case 'select':
                 // Sélectionner la première valeur correspondante
-                const option = Array.from(input.options).find(opt => 
+                const option = Array.from(input.options).find(opt =>
                     values.some(val => val === opt.value)
                 );
                 if (option) {
@@ -2024,23 +2039,23 @@ function prefillVariantCategoryAttributes(index, variantAttributes = []) {
                     console.log(`[DEBUG] Sélectionné: ${option.value}`);
                 }
                 break;
-                
+
             case 'multiselect':
                 // Sélectionner toutes les valeurs correspondantes
                 Array.from(input.options).forEach(opt => {
                     opt.selected = values.includes(opt.value);
                 });
                 break;
-                
+
             case 'checkbox':
             case 'boolean':
                 // Cocher si la valeur 'true' est trouvée
-                const hasTrue = values.some(val => 
+                const hasTrue = values.some(val =>
                     ['true', '1', 'oui', 'yes'].includes(String(val).toLowerCase())
                 );
                 input.checked = hasTrue;
                 break;
-                
+
             case 'text':
             case 'number':
                 // Utiliser la première valeur
@@ -2061,7 +2076,7 @@ function previewProductImage(input) {
 
     if (input.files && input.files[0]) {
         const reader = new FileReader();
-        reader.onload = function(e) {
+        reader.onload = function (e) {
             previewImg.src = e.target.result;
             preview.style.display = 'block';
         };

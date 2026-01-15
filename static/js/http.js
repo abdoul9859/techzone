@@ -1,19 +1,19 @@
 // Lightweight fetch-based HTTP client to replace Axios
-(function(){
+(function () {
   const baseURL = (() => {
-    try { 
+    try {
       const origin = window.location.origin || '';
       return origin;
-    } catch { 
-      return ''; 
+    } catch {
+      return '';
     }
   })();
-  
+
   // No protocol detection needed - use current protocol
 
   function buildURL(url, params) {
     const hasProto = /^https?:\/\//i.test(url);
-    
+
     // For localhost, always use HTTP
     let finalUrl;
     if (hasProto) {
@@ -34,14 +34,9 @@
         finalUrl = baseURL + url;
       }
     }
-    
+
     const u = new URL(finalUrl);
-    
-    // Ensure HTTP for localhost/127.0.0.1
-    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
-      u.protocol = 'http:';
-    }
-    
+
     if (params && typeof params === 'object') {
       Object.entries(params).forEach(([k, v]) => {
         if (v === undefined || v === null) return;
@@ -52,7 +47,7 @@
         }
       });
     }
-    
+
     const finalResult = u.toString();
     return finalResult;
   }
@@ -63,7 +58,7 @@
       for (const [k, v] of headers.entries()) {
         obj[k.toLowerCase()] = v;
       }
-    } catch {}
+    } catch { }
     return obj;
   }
 
@@ -109,7 +104,7 @@
       if (resp.status === 401) {
         // Ne pas appeler logout automatiquement pour éviter d'effacer le cookie
         // sur des 401 transitoires; redirection simple vers /login
-        try { window.location.href = '/login'; } catch {}
+        try { window.location.href = '/login'; } catch { }
       }
       const err = new Error('HTTP error ' + resp.status);
       err.response = responseLike;

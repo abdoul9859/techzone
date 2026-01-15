@@ -4,41 +4,48 @@
 
 {% block extra_head %}
 <style>
-.table-responsive {
-    border-radius: 0.5rem;
-}
-.status-badge {
-    font-size: 0.875rem;
-    padding: 0.375rem 0.75rem;
-}
-.btn-group-sm .btn {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.875rem;
-}
-.invoice-summary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border-radius: 1rem;
-    padding: 1.5rem;
-    margin-bottom: 2rem;
-}
-.invoice-stat {
-    text-align: center;
-    padding: 1rem;
-}
-.invoice-stat h4 {
-    font-size: 2rem;
-    font-weight: bold;
-    margin-bottom: 0.5rem;
-}
-.invoice-stat p {
-    margin: 0;
-    opacity: 0.9;
-}
-.amount-display {
-    font-weight: bold;
-    font-family: 'Courier New', monospace;
-}
+    .table-responsive {
+        border-radius: 0.5rem;
+    }
+
+    .status-badge {
+        font-size: 0.875rem;
+        padding: 0.375rem 0.75rem;
+    }
+
+    .btn-group-sm .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    .invoice-summary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .invoice-stat {
+        text-align: center;
+        padding: 1rem;
+    }
+
+    .invoice-stat h4 {
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+
+    .invoice-stat p {
+        margin: 0;
+        opacity: 0.9;
+    }
+
+    .amount-display {
+        font-weight: bold;
+        font-family: 'Courier New', monospace;
+    }
 </style>
 {% endblock %}
 
@@ -166,75 +173,77 @@
                 <h5 class="modal-title" id="invoiceModalLabel">Nouvelle facture fournisseur</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-<form id="invoiceForm">
-    <div class="modal-body">
-        <div class="row g-3">
-            <!-- Fournisseur -->
-            <div class="col-md-6">
-                <label for="supplierSearch" class="form-label">Fournisseur *</label>
-                <div class="input-group">
-                    <input type="text" id="supplierSearch" class="form-control" 
-                           placeholder="Rechercher ou créer un fournisseur..." 
-                           autocomplete="off" required>
-                    <button class="btn btn-outline-primary" type="button" onclick="openQuickSupplierModal()">
-                        <i class="bi bi-plus-circle"></i> Nouveau
-                    </button>
+            <form id="invoiceForm">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <!-- Fournisseur -->
+                        <div class="col-md-6">
+                            <label for="supplierSearch" class="form-label">Fournisseur *</label>
+                            <div class="input-group">
+                                <input type="text" id="supplierSearch" class="form-control"
+                                    placeholder="Rechercher ou créer un fournisseur..." autocomplete="off" required>
+                                <button class="btn btn-outline-primary" type="button"
+                                    onclick="openQuickSupplierModal()">
+                                    <i class="bi bi-plus-circle"></i> Nouveau
+                                </button>
+                            </div>
+                            <input type="hidden" id="supplierId" required>
+                            <div id="supplierSearchResults" class="list-group position-absolute w-100"
+                                style="z-index: 1050; max-height: 200px; overflow-y: auto; display: none;"></div>
+                        </div>
+
+                        <!-- Photo de la facture -->
+                        <div class="col-md-6">
+                            <label for="invoiceImage" class="form-label">Photo de la facture</label>
+                            <input type="file" id="invoiceImage" class="form-control" accept="image/*">
+                            <div class="form-text">Téléchargez une photo de la facture fournisseur (optionnel)</div>
+                        </div>
+
+                        <!-- Numéro de facture -->
+                        <div class="col-md-6">
+                            <label for="invoiceNumber" class="form-label">Numéro de facture *</label>
+                            <input type="text" id="invoiceNumber" class="form-control" required>
+                        </div>
+
+                        <!-- Date de facture -->
+                        <div class="col-md-6">
+                            <label for="invoiceDate" class="form-label">Date de facture *</label>
+                            <input type="date" id="invoiceDate" class="form-control" required>
+                        </div>
+
+                        <!-- Date d'échéance -->
+                        <div class="col-md-6">
+                            <label for="dueDate" class="form-label">Date d'échéance</label>
+                            <input type="date" id="dueDate" class="form-control">
+                        </div>
+
+                        <!-- Montant total -->
+                        <div class="col-md-6">
+                            <label for="totalAmount" class="form-label">Montant total (FCFA) *</label>
+                            <input type="number" id="totalAmount" class="form-control bg-light" step="1" min="0"
+                                required readonly style="background-color: #e9ecef !important; cursor: not-allowed;">
+                        </div>
+
+                        <!-- Notes -->
+                        <div class="col-12">
+                            <label for="invoiceNotes" class="form-label">Notes</label>
+                            <textarea id="invoiceNotes" class="form-control" rows="2"
+                                placeholder="Notes ou commentaires sur cette facture..."></textarea>
+                        </div>
+
+                        <!-- Section Articles -->
+                        <div class="col-12">
+                            <hr class="my-3">
+                            <h6 class="mb-3"><i class="bi bi-box-seam me-2"></i>Articles de la facture</h6>
+                            <div id="invoiceItemsContainer">
+                                <!-- Les articles seront ajoutés ici dynamiquement -->
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addInvoiceItem()">
+                                <i class="bi bi-plus-circle me-1"></i>Ajouter un article
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <input type="hidden" id="supplierId" required>
-                <div id="supplierSearchResults" class="list-group position-absolute w-100" 
-                     style="z-index: 1050; max-height: 200px; overflow-y: auto; display: none;"></div>
-            </div>
-            
-            <!-- Photo de la facture -->
-            <div class="col-md-6">
-                <label for="invoiceImage" class="form-label">Photo de la facture</label>
-                <input type="file" id="invoiceImage" class="form-control" accept="image/*">
-                <div class="form-text">Téléchargez une photo de la facture fournisseur (optionnel)</div>
-            </div>
-            
-            <!-- Numéro de facture -->
-            <div class="col-md-6">
-                <label for="invoiceNumber" class="form-label">Numéro de facture *</label>
-                <input type="text" id="invoiceNumber" class="form-control" required>
-            </div>
-            
-            <!-- Date de facture -->
-            <div class="col-md-6">
-                <label for="invoiceDate" class="form-label">Date de facture *</label>
-                <input type="date" id="invoiceDate" class="form-control" required>
-            </div>
-            
-            <!-- Date d'échéance -->
-            <div class="col-md-6">
-                <label for="dueDate" class="form-label">Date d'échéance</label>
-                <input type="date" id="dueDate" class="form-control">
-            </div>
-            
-            <!-- Montant total -->
-            <div class="col-md-6">
-                <label for="totalAmount" class="form-label">Montant total (FCFA) *</label>
-                <input type="number" id="totalAmount" class="form-control bg-light" step="1" min="0" required readonly style="background-color: #e9ecef !important; cursor: not-allowed;">
-            </div>
-            
-            <!-- Notes -->
-            <div class="col-12">
-                <label for="invoiceNotes" class="form-label">Notes</label>
-                <textarea id="invoiceNotes" class="form-control" rows="2" placeholder="Notes ou commentaires sur cette facture..."></textarea>
-            </div>
-            
-            <!-- Section Articles -->
-            <div class="col-12">
-                <hr class="my-3">
-                <h6 class="mb-3"><i class="bi bi-box-seam me-2"></i>Articles de la facture</h6>
-                <div id="invoiceItemsContainer">
-                    <!-- Les articles seront ajoutés ici dynamiquement -->
-                </div>
-                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addInvoiceItem()">
-                    <i class="bi bi-plus-circle me-1"></i>Ajouter un article
-                </button>
-            </div>
-        </div>
-    </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
                     <button type="submit" class="btn btn-primary">
@@ -247,7 +256,8 @@
 </div>
 
 <!-- Modal de détails de facture -->
-<div class="modal fade" id="invoiceDetailsModal" tabindex="-1" aria-labelledby="invoiceDetailsModalLabel" aria-hidden="true">
+<div class="modal fade" id="invoiceDetailsModal" tabindex="-1" aria-labelledby="invoiceDetailsModalLabel"
+    aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
@@ -278,29 +288,29 @@
             <form id="paymentForm">
                 <div class="modal-body">
                     <div id="paymentInvoiceInfo" class="alert alert-info"></div>
-                    
+
                     <div class="mb-3">
                         <label for="paymentAmount" class="form-label">Montant *</label>
-<input type="number" id="paymentAmount" class="form-control" required step="1" min="0">
+                        <input type="number" id="paymentAmount" class="form-control" required step="1" min="0">
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="paymentDate" class="form-label">Date de paiement *</label>
                         <input type="datetime-local" id="paymentDate" class="form-control" required>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="paymentMethod" class="form-label">Méthode de paiement *</label>
                         <select id="paymentMethodSelect" class="form-select" required>
                             <!-- Options remplies dynamiquement depuis les paramètres de méthodes de paiement -->
                         </select>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="paymentReference" class="form-label">Référence</label>
                         <input type="text" id="paymentReference" class="form-control">
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="paymentNotes" class="form-label">Notes</label>
                         <textarea id="paymentNotes" class="form-control" rows="2"></textarea>
@@ -316,7 +326,8 @@
 </div>
 
 <!-- Modal de création rapide de fournisseur -->
-<div class="modal fade" id="quickSupplierModal" tabindex="-1" aria-labelledby="quickSupplierModalLabel" aria-hidden="true">
+<div class="modal fade" id="quickSupplierModal" tabindex="-1" aria-labelledby="quickSupplierModalLabel"
+    aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
@@ -376,9 +387,9 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/supplier_invoices.js?v={{ ASSET_VERSION }}"></script>
+<script src="/static/js/supplier_invoices.js?v={{ ASSET_VERSION() }}"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         initializeSupplierInvoices();
     });
 </script>

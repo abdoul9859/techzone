@@ -3,6 +3,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+from starlette.responses import Response as StarletteResponse
 from io import BytesIO
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -104,25 +106,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
+
 # (Optionnel) Middleware proxy enlevé pour compatibilité starlette; la baseURL côté frontend force déjà HTTPS
+
+# Middleware to remove CSP headers for print routes (runs first, before cache middleware)
+@app.middleware("http")
+async def remove_csp_for_print_routes(request, call_next):
+    response = await call_next(request)
+    
+    # Check if route marked itself to skip CSP headers
+    if response.headers.get("X-Skip-CSP") == "true":
+        if "Content-Security-Policy" in response.headers:
+            del response.headers["Content-Security-Policy"]
+        if "Strict-Transport-Security" in response.headers:
+            del response.headers["Strict-Transport-Security"]
+        if "X-Skip-CSP" in response.headers:
+            del response.headers["X-Skip-CSP"]
+    
+    return response
 
 # Middleware de gestion du cache: HTML non cache, assets statiques fortement cacheés
 @app.middleware("http")
 async def cache_headers_middleware(request, call_next):
+    path = request.url.path or ""
+    is_print_route = path.startswith("/invoices/print/") or path.startswith("/quotations/print/")
+    
     response = await call_next(request)
+    
+    # Debug logging for print routes
+    if is_print_route:
+        client_host = request.client.host if request.client else "NO_CLIENT"
+        print(f"DEBUG CSP BEFORE TRY: path={path}, client_host={client_host}, headers_before={list(response.headers.keys())}")
+    
     try:
-        path = request.url.path or ""
         content_type = (response.headers.get("content-type", "") or "").lower()
         if path.startswith("/static/") or path == "/favicon.ico":
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         elif content_type.startswith("text/html"):
             response.headers["Cache-Control"] = "no-store"
+        
         # Help browsers auto-upgrade any stray http resources to https and enable HSTS
-        # Only apply security headers in production (not on localhost)
-        if not (path.startswith("/") and (request.client.host in ["127.0.0.1", "localhost"] or 
-                request.headers.get("host", "").startswith(("localhost:", "127.0.0.1:")))):
-            response.headers.setdefault("Content-Security-Policy", "upgrade-insecure-requests")
-            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        # Skip security headers for Docker internal network requests or routes marked with X-Skip-CSP
+        client_host = request.client.host if request.client else ""
+        is_docker_internal = client_host.startswith("172.") or client_host.startswith("192.168.")
+        skip_csp = response.headers.get("X-Skip-CSP") == "true" or is_docker_internal
+        
+        # Debug: log for print routes
+        if path.startswith("/invoices/print/") or path.startswith("/quotations/print/"):
+            print(f"DEBUG CSP: path={path}, client_host={client_host}, is_docker_internal={is_docker_internal}, skip_csp={skip_csp}")
+        
+        if not skip_csp:
+            is_localhost = (
+                client_host in ["127.0.0.1", "localhost"] or
+                request.headers.get("host", "").startswith(("localhost:", "127.0.0.1:", "app:"))
+            )
+            if not is_localhost:
+                response.headers.setdefault("Content-Security-Policy", "upgrade-insecure-requests")
+                response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
     except Exception:
         # En cas de souci, on n'empêche pas la réponse de sortir
         pass
@@ -597,6 +638,11 @@ async def reports_page(request: Request, db: Session = Depends(get_db)):
     """Page des rapports"""
     return templates.TemplateResponse("reports.html", {"request": request, "global_settings": _load_company_settings(db)})
 
+@app.get("/stock-summary", response_class=HTMLResponse)
+async def stock_summary_page(request: Request, db: Session = Depends(get_db)):
+    """Page du récapitulatif de stock"""
+    return templates.TemplateResponse("stock_summary.html", {"request": request, "global_settings": _load_company_settings(db)})
+
 @app.get("/supplier-invoices", response_class=HTMLResponse)
 async def supplier_invoices_page(request: Request, db: Session = Depends(get_db)):
     """Page de gestion des factures fournisseur"""
@@ -992,9 +1038,13 @@ async def print_invoice_page(request: Request, invoice_id: int, db: Session = De
     }
 
     # Si la facture a une garantie, utiliser le template combiné avec certificat
-    if warranty_certificate:
-        return templates.TemplateResponse("print_invoice_with_warranty.html", context)
-    return templates.TemplateResponse("print_invoice.html", context)
+    template_name = "print_invoice_with_warranty.html" if warranty_certificate else "print_invoice.html"
+    response = templates.TemplateResponse(template_name, context)
+    
+    # Mark response to skip CSP headers (checked in middleware)
+    response.headers["X-Skip-CSP"] = "true"
+    
+    return response
 
 
 @app.get("/invoices/pdf/{invoice_id}")

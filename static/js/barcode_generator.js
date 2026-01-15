@@ -15,7 +15,7 @@ const LABEL_PRESETS = {
 let currentLabelKey = '58x40';
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const ready = () => {
         const hasAuthManager = !!window.authManager;
         const hasUser = !!(hasAuthManager && window.authManager.userData && Object.keys(window.authManager.userData).length);
@@ -86,7 +86,7 @@ async function loadProducts() {
         if (category) params.category = category;
         if (has_barcode !== undefined) params.has_barcode = has_barcode;
 
-        const { data } = await axios.get('/api/products/paginated', { params });
+        const { data } = await axios.get('/api/products/paginated/', { params });
         const items = Array.isArray(data) ? data : (data.items || data.products || []);
         // Normaliser: assurer un champ 'id' pour le front
         products = items.map(p => ({ ...p, id: p.id ?? p.product_id }));
@@ -122,7 +122,7 @@ function generateProductBarcode(productId) {
 function populateCategoryFilter() {
     const categoryFilter = document.getElementById('categoryFilter');
     const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
-    
+
     categoryFilter.innerHTML = '<option value="">Toutes les catégories</option>';
     categories.forEach(category => {
         const option = new Option(category, category);
@@ -161,7 +161,7 @@ function createProductRow(product) {
     const row = document.createElement('tr');
     const isSelected = selectedProducts.includes(product.id);
     const hasBarcode = product.barcode && product.barcode.trim() !== '';
-    
+
     row.innerHTML = `
         <td>
             <input type="checkbox" class="form-check-input product-checkbox" 
@@ -180,17 +180,17 @@ function createProductRow(product) {
             <strong>${formatCurrency(product.price || 0)}</strong>
         </td>
         <td>
-            ${hasBarcode ? 
-                `<code class="text-primary">${escapeHtml(product.barcode)}</code>` : 
-                '<span class="text-muted">Généré automatiquement</span>'
-            }
+            ${hasBarcode ?
+            `<code class="text-primary">${escapeHtml(product.barcode)}</code>` :
+            '<span class="text-muted">Généré automatiquement</span>'
+        }
         </td>
         <td>
             <div id="barcode-preview-${product.id}" class="barcode-preview">
-                ${hasBarcode || product.id ? 
-                    `<svg id="barcode-${product.id}"></svg>` : 
-                    '<span class="text-muted">N/A</span>'
-                }
+                ${hasBarcode || product.id ?
+            `<svg id="barcode-${product.id}"></svg>` :
+            '<span class="text-muted">N/A</span>'
+        }
             </div>
         </td>
         <td>
@@ -207,7 +207,7 @@ function createProductRow(product) {
 
     // Ajouter l'écouteur pour la checkbox
     const checkbox = row.querySelector('.product-checkbox');
-    checkbox.addEventListener('change', function() {
+    checkbox.addEventListener('change', function () {
         handleProductSelection(product.id, this.checked);
     });
 
@@ -225,7 +225,7 @@ function generateBarcodePreview(product) {
     if (!barcodeElement) return;
 
     const barcodeValue = product.barcode || generateProductBarcode(product.id);
-    
+
     try {
         JsBarcode(barcodeElement, barcodeValue, {
             format: "CODE128",
@@ -299,8 +299,8 @@ function handleProductSelection(productId, isSelected) {
 function updateSelectAllState() {
     const selectAllCheck = document.getElementById('selectAllCheck');
     const selectAllTableCheck = document.getElementById('selectAllTableCheck');
-    const allSelected = filteredProducts.length > 0 && 
-                       filteredProducts.every(p => selectedProducts.includes(p.id));
+    const allSelected = filteredProducts.length > 0 &&
+        filteredProducts.every(p => selectedProducts.includes(p.id));
 
     selectAllCheck.checked = allSelected;
     selectAllTableCheck.checked = allSelected;
@@ -342,7 +342,7 @@ function previewBarcode(productId) {
     currentPreviewProductId = productId;
 
     const barcodeValue = product.barcode || generateProductBarcode(product.id);
-    
+
     // Créer le contenu de l'aperçu
     const previewContent = document.getElementById('previewContent');
     previewContent.innerHTML = `
@@ -462,7 +462,7 @@ function generateCustomBarcode() {
     document.getElementById('customPrice').value = '';
     document.getElementById('barcodeFormat').value = 'CODE128';
     document.getElementById('customBarcodePreview').innerHTML = '<p class="text-muted">Saisissez un texte pour voir l\'aperçu</p>';
-    
+
     const modal = new bootstrap.Modal(document.getElementById('customBarcodeModal'));
     modal.show();
 }
@@ -581,8 +581,8 @@ function confirmPrint() {
 
 // Utilitaires
 function formatCurrency(amount) {
-    return new Intl.NumberFormat('fr-FR', { 
-        style: 'currency', 
+    return new Intl.NumberFormat('fr-FR', {
+        style: 'currency',
         currency: 'XOF',
         minimumFractionDigits: 0,
         maximumFractionDigits: 0

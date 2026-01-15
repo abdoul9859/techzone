@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Importer les fonctions WhatsApp\nconst whatsapp = require('/data/n8n/whatsapp.js');\n\n// Extraire les données du webhook\nconst data = $input.first().json.body || $input.first().json;\n\nconsole.log('Données reçues:', JSON.stringify(data));\n\n// Construire l'URL du devis HTML (accessible via réseau Docker)\nconst htmlUrl = whatsapp.buildPrintUrl(`/quotations/print/${data.quotation_id}`);\n\n// Construire le message caption\nconst caption = whatsapp.buildQuotationMessage({\n  quotation_number: data.quotation_number,\n  client_name: data.client_name,\n  total: data.total\n});\n\nreturn [{\n  json: {\n    phone: whatsapp.normalizePhone(data.phone),\n    htmlUrl: htmlUrl,\n    filename: `Devis-${data.quotation_number}.pdf`,\n    caption: caption\n  }\n}];"
+        "jsCode": "// Extraire et formater les données du webhook\nconst data = $input.first().json.body || $input.first().json;\n\nconsole.log('Données reçues:', JSON.stringify(data));\n\n// Formater le total\nconst total = Number(data.total || 0);\nconst totalFormatted = total.toLocaleString('fr-FR');\n\n// URL du devis HTML (accessible via réseau Docker)\nconst htmlUrl = `http://app:8000/quotations/print/${data.quotation_id}`;\n\n// Construire le message caption\nconst caption = `Bonjour ${data.client_name || 'Client'},\\n\\n📄 *DEVIS N° ${data.quotation_number}*\\n💰 Montant total: ${totalFormatted} F CFA\\n\\nMerci pour votre confiance.\\nPour toute question, n'hésitez pas à nous contacter.\\n\\nCordialement,\\nTECHZONE`;\n\nreturn [{\n  json: {\n    phone: data.phone,\n    htmlUrl: htmlUrl,\n    filename: `Devis-${data.quotation_number}.pdf`,\n    caption: caption\n  }\n}];"
       },
       "id": "extract-data-node",
       "name": "Extract Data",
@@ -28,7 +28,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.WHATSAPP_SERVICE_URL || 'http://whatsapp-service:3001' }}/api/sendPdf",
+        "url": "http://whatsapp-free:3002/api/sendPdf",
         "authentication": "none",
         "sendBody": true,
         "contentType": "json",

@@ -9,7 +9,7 @@ let reportData = {
 let charts = {};
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     setupEventListeners();
     generateReport();
 });
@@ -31,7 +31,7 @@ function handlePeriodTypeChange() {
     const periodType = document.getElementById('periodType').value;
     const dateFromContainer = document.getElementById('dateFromContainer');
     const dateToContainer = document.getElementById('dateToContainer');
-    
+
     if (periodType === 'custom') {
         dateFromContainer.style.display = 'block';
         dateToContainer.style.display = 'block';
@@ -48,7 +48,7 @@ function showReportSection(reportType) {
     document.getElementById('stockReport').style.display = 'none';
     document.getElementById('financeReport').style.display = 'none';
     document.getElementById('salesReport').style.display = 'none';
-    
+
     // Afficher la section appropriée
     document.getElementById(reportType + 'Report').style.display = 'block';
 }
@@ -57,17 +57,17 @@ function showReportSection(reportType) {
 async function generateReport() {
     const reportType = document.getElementById('reportType').value;
     const period = getPeriodDates();
-    
+
     try {
         // Afficher l'indicateur de chargement
         showLoading();
-        
+
         // Masquer toutes les sections de rapport
         document.getElementById('overviewReport').style.display = 'none';
         document.getElementById('stockReport').style.display = 'none';
         document.getElementById('financeReport').style.display = 'none';
         document.getElementById('salesReport').style.display = 'none';
-        
+
         // Charger les données selon le type de rapport
         // Note: loadOverviewData gère maintenant son propre hideLoading()
         switch (reportType) {
@@ -91,7 +91,7 @@ async function generateReport() {
                 hideLoading(); // Restaurer les métriques après le chargement
                 break;
         }
-        
+
         // Afficher la section de rapport appropriée
         showReportSection(reportType);
     } catch (error) {
@@ -106,7 +106,7 @@ function getPeriodDates() {
     const periodType = document.getElementById('periodType').value;
     const today = new Date();
     let startDate, endDate;
-    
+
     switch (periodType) {
         case 'today':
             startDate = new Date(today);
@@ -137,7 +137,7 @@ function getPeriodDates() {
             startDate = new Date(today.getFullYear(), today.getMonth(), 1);
             endDate = new Date(today);
     }
-    
+
     return {
         start: startDate.toISOString().split('T')[0],
         end: endDate.toISOString().split('T')[0]
@@ -152,15 +152,15 @@ async function loadOverviewData(period) {
         if (overviewReport) {
             overviewReport.style.display = 'none';
         }
-        
+
         // Charger les données
         const [products, invoices, clients, movements] = await Promise.all([
-            fetchData('/api/products'),
-            fetchData('/api/invoices'),
-            fetchData('/api/clients'),
-            fetchData('/api/stock-movements')
+            fetchData('/api/products/'),
+            fetchData('/api/invoices/'),
+            fetchData('/api/clients/'),
+            fetchData('/api/stock-movements/')
         ]);
-        
+
         reportData.overview = {
             products: products || [],
             invoices: invoices || [],
@@ -168,13 +168,13 @@ async function loadOverviewData(period) {
             movements: movements || [],
             period
         };
-        
+
         // Restaurer d'abord la structure des métriques
         hideLoading();
-        
+
         // Ensuite mettre à jour les métriques avec les données chargées
         updateOverviewMetrics();
-        
+
         // Enfin, afficher le rapport
         if (overviewReport) {
             overviewReport.style.display = 'block';
@@ -188,10 +188,10 @@ async function loadOverviewData(period) {
 // Charger les données de stock
 async function loadStockData(period) {
     const [products, movements] = await Promise.all([
-        fetchData('/api/products'),
-        fetchData('/api/stock-movements')
+        fetchData('/api/products/'),
+        fetchData('/api/stock-movements/')
     ]);
-    
+
     reportData.stock = {
         products: products || [],
         movements: movements || [],
@@ -202,10 +202,10 @@ async function loadStockData(period) {
 // Charger les données financières
 async function loadFinanceData(period) {
     const [invoices, transactions] = await Promise.all([
-        fetchData('/api/invoices'),
-        fetchData('/api/bank-transactions')
+        fetchData('/api/invoices/'),
+        fetchData('/api/bank-transactions/')
     ]);
-    
+
     reportData.finance = {
         invoices: invoices || [],
         transactions: transactions || [],
@@ -216,11 +216,11 @@ async function loadFinanceData(period) {
 // Charger les données de ventes
 async function loadSalesData(period) {
     const [invoices, products, movements] = await Promise.all([
-        fetchData('/api/invoices'),
-        fetchData('/api/products'),
-        fetchData('/api/stock-movements')
+        fetchData('/api/invoices/'),
+        fetchData('/api/products/'),
+        fetchData('/api/stock-movements/')
     ]);
-    
+
     reportData.sales = {
         invoices: invoices || [],
         products: products || [],
@@ -235,7 +235,7 @@ async function fetchData(endpoint) {
         const response = await fetch(endpoint, {
             credentials: 'include'
         });
-        
+
         if (response.ok) {
             return await response.json();
         }
@@ -249,23 +249,23 @@ async function fetchData(endpoint) {
 // Mettre à jour les métriques de vue d'ensemble
 function updateOverviewMetrics() {
     const data = reportData.overview;
-    
+
     // Calculer le chiffre d'affaires
     const totalRevenue = (data.invoices || [])
         .filter(inv => isInvoicePaid(inv))
         .reduce((sum, inv) => sum + getInvoiceTotal(inv), 0);
-    
+
     // Vérifier l'existence des éléments avant de modifier leur contenu
     const totalRevenueEl = document.getElementById('totalRevenue');
     const totalProductsEl = document.getElementById('totalProducts');
     const totalInvoicesEl = document.getElementById('totalInvoices');
     const totalClientsEl = document.getElementById('totalClients');
-    
+
     if (totalRevenueEl) totalRevenueEl.textContent = formatCurrency(totalRevenue);
     if (totalProductsEl) totalProductsEl.textContent = (data.products || []).length;
     if (totalInvoicesEl) totalInvoicesEl.textContent = (data.invoices || []).length;
     if (totalClientsEl) totalClientsEl.textContent = (data.clients || []).length;
-    
+
     // Si un élément est manquant, afficher un avertissement dans la console
     if (!totalRevenueEl || !totalProductsEl || !totalInvoicesEl || !totalClientsEl) {
         console.warn('Certains éléments métriques sont manquants dans le DOM');
@@ -281,32 +281,32 @@ function renderOverviewReport() {
 // Rendre le graphique de revenus
 function renderRevenueChart() {
     const ctx = document.getElementById('revenueChart').getContext('2d');
-    
+
     // Détruire le graphique existant s'il existe
     if (charts.revenueChart) {
         charts.revenueChart.destroy();
     }
-    
+
     const data = reportData.overview;
     const invoices = data.invoices || [];
-    
+
     // Grouper les factures par mois
     const monthlyRevenue = {};
     invoices.forEach(invoice => {
         if (isInvoicePaid(invoice)) {
             const d = getInvoiceDate(invoice);
             if (!d) return;
-            const month = d.toLocaleDateString('fr-FR', { 
-                year: 'numeric', 
-                month: 'short' 
+            const month = d.toLocaleDateString('fr-FR', {
+                year: 'numeric',
+                month: 'short'
             });
             monthlyRevenue[month] = (monthlyRevenue[month] || 0) + getInvoiceTotal(invoice);
         }
     });
-    
+
     const labels = Object.keys(monthlyRevenue).sort();
     const values = labels.map(label => monthlyRevenue[label]);
-    
+
     charts.revenueChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -326,7 +326,7 @@ function renderRevenueChart() {
                 y: {
                     beginAtZero: true,
                     ticks: {
-                        callback: function(value) {
+                        callback: function (value) {
                             return formatCurrency(value);
                         }
                     }
@@ -339,14 +339,14 @@ function renderRevenueChart() {
 // Rendre le graphique de répartition des ventes
 function renderSalesChart() {
     const ctx = document.getElementById('salesChart').getContext('2d');
-    
+
     if (charts.salesChart) {
         charts.salesChart.destroy();
     }
-    
+
     const data = reportData.overview;
     const invoices = data.invoices || [];
-    
+
     // Calculer la répartition par statut
     const statusCounts = { 'Payées': 0, 'En attente': 0, 'Brouillon': 0, 'Annulées': 0 };
     invoices.forEach(inv => {
@@ -356,11 +356,11 @@ function renderSalesChart() {
         else if (st === 'draft') statusCounts['Brouillon']++;
         else if (st === 'cancelled') statusCounts['Annulées']++;
     });
-    
+
     const labels = Object.keys(statusCounts);
     const values = Object.values(statusCounts);
     const colors = ['#28a745', '#ffc107', '#6c757d', '#dc3545'];
-    
+
     charts.salesChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
@@ -393,17 +393,17 @@ function renderStockReport() {
 // Rendre le graphique de stock
 function renderStockChart() {
     const ctx = document.getElementById('stockChart').getContext('2d');
-    
+
     if (charts.stockChart) {
         charts.stockChart.destroy();
     }
-    
+
     const data = reportData.stock;
     const products = (data.products || []).slice(0, 10); // Top 10
-    
+
     const labels = products.map(p => p.name);
     const quantities = products.map(p => p.quantity || 0);
-    
+
     charts.stockChart = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -432,17 +432,17 @@ function renderStockChart() {
 function renderStockTable() {
     const tbody = document.getElementById('stockTableBody');
     const products = reportData.stock.products || [];
-    
+
     tbody.innerHTML = '';
-    
+
     products.forEach(product => {
         const quantity = product.quantity || 0;
         const price = product.price || 0;
         const value = quantity * price;
-        
+
         let statusClass = 'success';
         let statusText = 'En stock';
-        
+
         if (quantity === 0) {
             statusClass = 'danger';
             statusText = 'Rupture';
@@ -450,7 +450,7 @@ function renderStockTable() {
             statusClass = 'warning';
             statusText = 'Stock faible';
         }
-        
+
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${escapeHtml(product.name)}</td>
@@ -469,12 +469,12 @@ function renderStockTable() {
 function renderStockAlerts() {
     const container = document.getElementById('stockAlerts');
     const products = reportData.stock.products || [];
-    
+
     const lowStockProducts = products.filter(p => (p.quantity || 0) <= 5);
     const outOfStockProducts = products.filter(p => (p.quantity || 0) === 0);
-    
+
     container.innerHTML = '';
-    
+
     if (outOfStockProducts.length === 0 && lowStockProducts.length === 0) {
         container.innerHTML = `
             <div class="text-center py-3">
@@ -484,7 +484,7 @@ function renderStockAlerts() {
         `;
         return;
     }
-    
+
     if (outOfStockProducts.length > 0) {
         const alertDiv = document.createElement('div');
         alertDiv.className = 'alert alert-danger';
@@ -497,7 +497,7 @@ function renderStockAlerts() {
         `;
         container.appendChild(alertDiv);
     }
-    
+
     if (lowStockProducts.length > 0) {
         const alertDiv = document.createElement('div');
         alertDiv.className = 'alert alert-warning';
@@ -521,26 +521,26 @@ function renderFinanceReport() {
 // Rendre le graphique financier
 function renderFinanceChart() {
     const ctx = document.getElementById('financeChart').getContext('2d');
-    
+
     if (charts.financeChart) {
         charts.financeChart.destroy();
     }
-    
+
     const data = reportData.finance;
     const transactions = data.transactions || [];
-    
+
     // Grouper par mois
     const monthlyData = {};
     transactions.forEach(transaction => {
         if (transaction.date) {
-            const month = new Date(transaction.date).toLocaleDateString('fr-FR', { 
-                year: 'numeric', 
-                month: 'short' 
+            const month = new Date(transaction.date).toLocaleDateString('fr-FR', {
+                year: 'numeric',
+                month: 'short'
             });
             if (!monthlyData[month]) {
                 monthlyData[month] = { income: 0, expense: 0 };
             }
-            
+
             if (transaction.type === 'entree') {
                 monthlyData[month].income += transaction.amount || 0;
             } else {
@@ -548,11 +548,11 @@ function renderFinanceChart() {
             }
         }
     });
-    
+
     const labels = Object.keys(monthlyData).sort();
     const incomeData = labels.map(label => monthlyData[label].income);
     const expenseData = labels.map(label => monthlyData[label].expense);
-    
+
     charts.financeChart = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -581,7 +581,7 @@ function renderFinanceChart() {
                 y: {
                     beginAtZero: true,
                     ticks: {
-                        callback: function(value) {
+                        callback: function (value) {
                             return formatCurrency(value);
                         }
                     }
@@ -594,25 +594,25 @@ function renderFinanceChart() {
 // Rendre le graphique des méthodes de paiement
 function renderPaymentMethodsChart() {
     const ctx = document.getElementById('paymentMethodsChart').getContext('2d');
-    
+
     if (charts.paymentMethodsChart) {
         charts.paymentMethodsChart.destroy();
     }
-    
+
     const data = reportData.finance;
     const transactions = data.transactions || [];
-    
+
     // Compter par méthode de paiement
     const methodCounts = {};
     transactions.forEach(transaction => {
         const method = transaction.payment_method || 'Autre';
         methodCounts[method] = (methodCounts[method] || 0) + 1;
     });
-    
+
     const labels = Object.keys(methodCounts);
     const values = Object.values(methodCounts);
     const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'];
-    
+
     charts.paymentMethodsChart = new Chart(ctx, {
         type: 'pie',
         data: {
@@ -644,14 +644,14 @@ function renderSalesReport() {
 // Rendre le graphique de tendance des ventes
 function renderSalesTrendChart() {
     const ctx = document.getElementById('salesTrendChart').getContext('2d');
-    
+
     if (charts.salesTrendChart) {
         charts.salesTrendChart.destroy();
     }
-    
+
     const data = reportData.sales;
     const invoices = data.invoices || [];
-    
+
     // Grouper par semaine
     const weeklyData = {};
     invoices.forEach(invoice => {
@@ -663,10 +663,10 @@ function renderSalesTrendChart() {
             weeklyData[weekKey] = (weeklyData[weekKey] || 0) + getInvoiceTotal(invoice);
         }
     });
-    
+
     const labels = Object.keys(weeklyData).sort();
     const values = labels.map(label => weeklyData[label]);
-    
+
     charts.salesTrendChart = new Chart(ctx, {
         type: 'line',
         data: {
@@ -687,7 +687,7 @@ function renderSalesTrendChart() {
                 y: {
                     beginAtZero: true,
                     ticks: {
-                        callback: function(value) {
+                        callback: function (value) {
                             return formatCurrency(value);
                         }
                     }
@@ -702,7 +702,7 @@ function renderTopProducts() {
     const container = document.getElementById('topProducts');
     const data = reportData.sales;
     const movements = data.movements || [];
-    
+
     // Calculer les ventes par produit
     const productSales = {};
     movements.forEach(movement => {
@@ -711,7 +711,7 @@ function renderTopProducts() {
             productSales[productId] = (productSales[productId] || 0) + (movement.quantity || 0);
         }
     });
-    
+
     // Obtenir les noms des produits
     const products = data.products || [];
     const topProducts = Object.entries(productSales)
@@ -724,9 +724,9 @@ function renderTopProducts() {
         })
         .sort((a, b) => b.quantity - a.quantity)
         .slice(0, 5);
-    
+
     container.innerHTML = '';
-    
+
     if (topProducts.length === 0) {
         container.innerHTML = `
             <div class="text-center py-3">
@@ -736,7 +736,7 @@ function renderTopProducts() {
         `;
         return;
     }
-    
+
     topProducts.forEach((product, index) => {
         const item = document.createElement('div');
         item.className = 'd-flex justify-content-between align-items-center mb-2';
@@ -771,8 +771,8 @@ function getWeekNumber(date) {
 }
 
 function formatCurrency(amount) {
-    return new Intl.NumberFormat('fr-FR', { 
-        style: 'currency', 
+    return new Intl.NumberFormat('fr-FR', {
+        style: 'currency',
         currency: 'XOF',
         minimumFractionDigits: 0,
         maximumFractionDigits: 0

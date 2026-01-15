@@ -7,7 +7,7 @@ let currentPage = 1;
 const itemsPerPage = 15;
 
 // Initialisation (cookie-based auth readiness)
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const ready = () => {
         const hasAuthManager = !!window.authManager;
         const hasUser = !!(hasAuthManager && window.authManager.userData && Object.keys(window.authManager.userData).length);
@@ -38,7 +38,7 @@ function setupEventListeners() {
 
     // Type de dette change
     document.getElementById('debtType').addEventListener('change', handleDebtTypeChange);
-    
+
     // Auto-ajuster l'échéance si la date de création change (pour créance client)
     document.getElementById('debtDate').addEventListener('change', () => {
         if (document.getElementById('debtType').value === 'client') {
@@ -187,7 +187,7 @@ function toggleNewClient(show = true) {
         if (!section) return;
         if (t !== 'client') { section.style.display = 'none'; return; }
         section.style.display = show ? '' : 'none';
-    } catch (e) {}
+    } catch (e) { }
 }
 
 // Création rapide de client depuis la modale (global)
@@ -198,7 +198,7 @@ async function quickAddClient() {
         const email = (document.getElementById('newClientEmail').value || '').trim();
         if (!name) { showError('Veuillez saisir le nom du client'); return; }
         const payload = { name, phone: phone || undefined, email: email || undefined };
-        const { data } = await axios.post('/api/clients', payload);
+        const { data } = await axios.post('/api/clients/', payload);
         if (!data || (!data.client_id && !data.id)) {
             showError('Création du client échouée');
             return;
@@ -216,7 +216,7 @@ async function quickAddClient() {
             if (!clients.some(c => Number(c.client_id ?? c.id) === Number(newClient.client_id))) {
                 clients.push(newClient);
             }
-        } catch (e) {}
+        } catch (e) { }
         updateEntitySelect();
         selectEntity(data.client_id ?? data.id, data.name);
         toggleNewClient(false);
@@ -283,7 +283,7 @@ async function loadDebts() {
 async function loadClients() {
     try {
         const response = await safeLoadData(
-            () => axios.get('/api/clients'),
+            () => axios.get('/api/clients/'),
             { timeout: 8000, fallbackData: [], errorMessage: 'Erreur lors du chargement des clients' }
         );
         const data = response?.data ?? [];
@@ -343,7 +343,7 @@ function createDebtRow(debt) {
     const entityName = getEntityName(debt);
     const remaining = (debt.amount || 0) - (debt.paid_amount || 0);
     const canAddPayment = (debt.type === 'client' && !debt.has_invoice && remaining > 0);
-    
+
     row.innerHTML = `
         <td>
             <strong>${escapeHtml(debt.reference)}</strong>
@@ -358,9 +358,9 @@ function createDebtRow(debt) {
         <td>${formatDate(debt.date)}</td>
         <td>
             ${debt.due_date ? formatDate(debt.due_date) : '-'}
-            ${debt.due_date && isOverdue(debt.due_date, debt.status) ? 
-                '<span class="badge bg-danger ms-1">En retard</span>' : ''
-            }
+            ${debt.due_date && isOverdue(debt.due_date, debt.status) ?
+            '<span class="badge bg-danger ms-1">En retard</span>' : ''
+        }
         </td>
         <td>
             <strong>${formatCurrency(debt.amount)}</strong>
@@ -404,7 +404,7 @@ function getFilteredDebts() {
         console.error('La variable debts n\'est pas un tableau:', debts);
         return [];
     }
-    
+
     let filtered = [...debts];
 
     const searchTerm = document.getElementById('searchInput').value.toLowerCase();
@@ -414,7 +414,7 @@ function getFilteredDebts() {
     const dateToFilter = document.getElementById('dateToFilter').value;
 
     if (searchTerm) {
-        filtered = filtered.filter(debt => 
+        filtered = filtered.filter(debt =>
             debt.reference.toLowerCase().includes(searchTerm) ||
             debt.description?.toLowerCase().includes(searchTerm) ||
             getEntityName(debt).toLowerCase().includes(searchTerm)
@@ -493,13 +493,13 @@ function createDebt() {
 function resetDebtForm() {
     const form = document.getElementById('debtForm');
     form.reset();
-    
+
     document.getElementById('debtId').value = '';
     setDefaultDate();
-    
+
     const modalTitle = document.getElementById('debtModalTitle');
     modalTitle.innerHTML = '<i class="bi bi-plus-circle me-2"></i>Nouvelle Dette';
-    
+
     currentDebtId = null;
     updateEntitySelect();
 }
@@ -533,7 +533,7 @@ function updateEntitySelect() {
     const debtType = document.getElementById('debtType').value;
     const entityLabel = document.getElementById('entityLabel');
     const entityInput = document.getElementById('entitySelect');
-    
+
     if (debtType === 'client') {
         entityLabel.textContent = 'Client';
         entityInput.placeholder = 'Rechercher un client...';
@@ -572,7 +572,7 @@ function editDebt(id) {
     document.getElementById('notes').value = d.notes || '';
     setTimeout(() => {
         const entityInput = document.getElementById('entitySelect');
-        const entity = d.type === 'client' 
+        const entity = d.type === 'client'
             ? clients.find(c => (c.client_id ?? c.id) === d.entity_id)
             : suppliers.find(s => (s.supplier_id ?? s.id) === d.entity_id);
         if (entity) {
@@ -603,9 +603,9 @@ async function saveDebt() {
         notes: document.getElementById('notes').value
     };
 
-    if (!debtData.entity_id) { 
-        showError(debtData.type === 'client' ? 'Veuillez sélectionner un client' : 'Veuillez sélectionner un fournisseur'); 
-        return; 
+    if (!debtData.entity_id) {
+        showError(debtData.type === 'client' ? 'Veuillez sélectionner un client' : 'Veuillez sélectionner un fournisseur');
+        return;
     }
     if (!debtData.reference.trim()) { showError('Veuillez saisir une référence'); return; }
     if (!debtData.amount || debtData.amount <= 0) { showError('Veuillez saisir un montant valide'); return; }
@@ -614,7 +614,7 @@ async function saveDebt() {
     try {
         if (debtData.type === 'client') {
             // Créer une créance client manuelle (sans facture)
-            const { data: created } = await axios.post('/api/debts', debtData);
+            const { data: created } = await axios.post('/api/debts/', debtData);
             // Paiement initial optionnel
             try {
                 const rawAmt = document.getElementById('initPaymentAmount').value;
@@ -642,11 +642,11 @@ async function saveDebt() {
             if (currentDebtId) {
                 await axios.put(`/api/debts/${currentDebtId}`, debtData);
             } else {
-                await axios.post('/api/debts', debtData);
+                await axios.post('/api/debts/', debtData);
             }
         }
-        const createdMsg = debtData.type === 'client' 
-            ? (currentDebtId ? 'Créance client modifiée' : 'Créance client créée') 
+        const createdMsg = debtData.type === 'client'
+            ? (currentDebtId ? 'Créance client modifiée' : 'Créance client créée')
             : (currentDebtId ? 'Dette fournisseur modifiée' : 'Dette fournisseur créée');
         showSuccess(createdMsg);
         const modal = bootstrap.Modal.getInstance(document.getElementById('debtModal'));
@@ -665,7 +665,7 @@ function addPayment(id) {
 
     const remaining = (debt.amount || 0) - (debt.paid_amount || 0);
     const remainingInt = Math.max(0, Math.floor(remaining));
-    
+
     if (remainingInt <= 0) {
         showInfo('Cette dette est déjà entièrement payée');
         return;
@@ -675,7 +675,7 @@ function addPayment(id) {
     document.getElementById('paymentDebtId').value = debt.id;
     document.getElementById('paymentAmount').value = remainingInt;
     document.getElementById('paymentAmount').max = remainingInt;
-    
+
     const debtInfo = document.getElementById('paymentDebtInfo');
     debtInfo.innerHTML = `
         <div class="d-flex justify-content-between">
@@ -728,11 +728,11 @@ async function savePayment() {
         await axios.post(`/api/debts/${debtId}/payments`, paymentData);
 
         showSuccess('Paiement enregistré avec succès');
-        
+
         // Fermer la modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('paymentModal'));
         modal.hide();
-        
+
         // Recharger les données
         loadDebts();
     } catch (error) {
@@ -746,7 +746,7 @@ function viewDebt(id) {
     try {
         sessionStorage.setItem('invoiceSearchQuery', String(id));
         sessionStorage.setItem('open_invoice_detail_id', String(id));
-    } catch (e) {}
+    } catch (e) { }
     // Rediriger vers la page des factures (elle ouvrira directement la modale de détail)
     window.location.href = `/invoices`;
 }
@@ -856,8 +856,8 @@ function formatDate(dateString) {
 }
 
 function formatCurrency(amount) {
-    return new Intl.NumberFormat('fr-FR', { 
-        style: 'currency', 
+    return new Intl.NumberFormat('fr-FR', {
+        style: 'currency',
         currency: 'XOF',
         minimumFractionDigits: 0,
         maximumFractionDigits: 0
@@ -867,17 +867,17 @@ function formatCurrency(amount) {
 function updatePagination(totalItems) {
     const totalPages = Math.ceil(totalItems / itemsPerPage);
     const pagination = document.getElementById('pagination');
-    
+
     pagination.innerHTML = '';
-    
+
     if (totalPages <= 1) return;
-    
+
     // Bouton précédent
     const prevLi = document.createElement('li');
     prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
     prevLi.innerHTML = `<a class="page-link" href="#" onclick="changePage(${currentPage - 1})">Précédent</a>`;
     pagination.appendChild(prevLi);
-    
+
     // Pages
     for (let i = 1; i <= totalPages; i++) {
         const li = document.createElement('li');
@@ -885,7 +885,7 @@ function updatePagination(totalItems) {
         li.innerHTML = `<a class="page-link" href="#" onclick="changePage(${i})">${i}</a>`;
         pagination.appendChild(li);
     }
-    
+
     // Bouton suivant
     const nextLi = document.createElement('li');
     nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
@@ -910,9 +910,9 @@ function enforceIntegerInput(input) {
 function changePage(page) {
     const totalItems = getFilteredDebts().length;
     const totalPages = Math.ceil(totalItems / itemsPerPage);
-    
+
     if (page < 1 || page > totalPages) return;
-    
+
     currentPage = page;
     displayDebts();
 }

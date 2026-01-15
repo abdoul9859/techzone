@@ -5,8 +5,8 @@ function cleanupModalBackdrops() {
         if (!anyShown) {
             document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
             document.body.classList.remove('modal-open');
-            try { document.body.style.removeProperty('overflow'); } catch(e) {}
-            try { document.body.style.removeProperty('padding-right'); } catch(e) {}
+            try { document.body.style.removeProperty('overflow'); } catch (e) { }
+            try { document.body.style.removeProperty('padding-right'); } catch (e) { }
         }
     } catch (e) { /* ignore */ }
 }
@@ -45,12 +45,17 @@ function rowHasImei(row, imei) {
 // Calcule le stock disponible pour un produit
 function computeAvailableStock(product) {
     try {
-        const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
+        let variants = productVariantsByProductId.get(Number(product.product_id)) || [];
+        if (!variants.length && Array.isArray(product.variants)) {
+            variants = product.variants;
+        }
         if (variants.length > 0) {
             return variants.reduce((acc, v) => {
                 if (v && v.is_sold) return acc;
-                const q = Number(v && v.quantity);
-                return acc + (Number.isFinite(q) ? q : 1);
+                const q = v && v.quantity;
+                if (q == null || q === undefined) return acc + 1;
+                const numQ = Number(q);
+                return acc + (Number.isFinite(numQ) && numQ > 0 ? numQ : 1);
             }, 0);
         }
         return Number(product.quantity || 0);
@@ -63,7 +68,7 @@ async function resetInvoicePaymentsFromDetail(invoiceId) {
     try {
         if (!invoiceId) return;
         if (!confirm('Réinitialiser tous les paiements de cette facture ?')) return;
-        await axios.post(`/api/invoices/${invoiceId}/payments/reset`);
+        await axios.post(`/api/invoices/${invoiceId}/payments/reset/`);
         showSuccess('Paiements réinitialisés');
         await loadInvoiceDetail(invoiceId);
     } catch (error) {
@@ -73,14 +78,14 @@ async function resetInvoicePaymentsFromDetail(invoiceId) {
 }
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Inject sort arrows like products/quotations if header present
     try {
         const thMap = [
             ['number', 'Numéro'], ['client', 'Client'], ['date', 'Date'], ['due', 'Échéance'], ['total', 'Montant'], ['status', 'Statut']
         ];
         if (typeof window.buildSortHeader !== 'function') {
-            window.buildSortHeader = function(label, byKey) {
+            window.buildSortHeader = function (label, byKey) {
                 const isActive = (currentSort.by === byKey);
                 const ascActive = isActive && currentSort.dir === 'asc';
                 const descActive = isActive && currentSort.dir === 'desc';
@@ -130,7 +135,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initialiser immédiatement sans délai pour un chargement instantané
     loadInvoices();
-    try { loadStats(); } catch(e){}
+    try { loadStats(); } catch (e) { }
     // Lazy: clients/products chargés à l'usage
     setupEventListeners();
     setDefaultDates();
@@ -140,8 +145,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (raw) {
             const data = JSON.parse(raw);
             sessionStorage.removeItem('prefill_invoice_from_quotation');
-            if (!Array.isArray(products) || !products.length) { try { loadProducts(); } catch(e) {} }
-            if (!Array.isArray(clients) || !clients.length) { try { loadClients(); } catch(e) {} }
+            if (!Array.isArray(products) || !products.length) { try { loadProducts(); } catch (e) { } }
+            if (!Array.isArray(clients) || !clients.length) { try { loadClients(); } catch (e) { } }
             Promise.all([waitForProductsLoaded(), waitForClientsLoaded()])
                 .then(() => preloadPrefilledInvoiceFromQuotation(data));
         }
@@ -159,7 +164,7 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 const input = document.getElementById('invoiceSearch');
                 if (input) { input.value = q; filterInvoices(); }
-            } catch(e) {}
+            } catch (e) { }
         }
         // Si on arrive depuis la page des créances, ouvrir directement le détail
         const openId = sessionStorage.getItem('open_invoice_detail_id');
@@ -167,10 +172,10 @@ document.addEventListener('DOMContentLoaded', function() {
             sessionStorage.removeItem('open_invoice_detail_id');
             // Attendre un court instant que la liste soit affichée puis ouvrir
             setTimeout(() => {
-                try { viewInvoice(Number(openId)); } catch(e) {}
+                try { viewInvoice(Number(openId)); } catch (e) { }
             }, 200);
         }
-    } catch (e) {}
+    } catch (e) { }
 
     // Nettoyage global des backdrops Bootstrap après fermeture d'un modal
     try {
@@ -224,7 +229,7 @@ function setupEventListeners() {
     document.getElementById('saveQuickClientBtn')?.addEventListener('click', saveQuickClient);
 
     // Initialiser la recherche client côté serveur (si non initialisée)
-    try { setupClientSearch(); } catch (e) {}
+    try { setupClientSearch(); } catch (e) { }
 
     // Payment now switch
     const paySwitch = document.getElementById('paymentNowSwitch');
@@ -234,14 +239,14 @@ function setupEventListeners() {
             const paymentFields = document.getElementById('paymentNowFields');
             const amountInput = document.getElementById('paymentNowAmount');
             const maxAmountSpan = document.getElementById('maxPaymentAmount');
-            
+
             if (paymentFields) paymentFields.style.display = v ? 'flex' : 'none';
-            
+
             if (v && amountInput) {
                 // Calculer le montant maximum en tenant compte des paiements existants
                 const totalAmount = parseFloat(document.getElementById('invoiceForm').dataset.total || '0');
                 const invoiceId = document.getElementById('invoiceId').value;
-                
+
                 if (invoiceId) {
                     // En édition : récupérer le montant restant depuis les infos affichées
                     const paymentInfo = document.getElementById('existingPaymentInfo');
@@ -255,7 +260,7 @@ function setupEventListeners() {
                                 // Nettoyer le montant en supprimant les espaces et en remplaçant la virgule par un point
                                 const cleanAmount = remainingMatch[1].replace(/\s/g, '').replace(',', '.');
                                 const remainingAmount = parseFloat(cleanAmount);
-                                
+
                                 if (!isNaN(remainingAmount)) {
                                     amountInput.value = remainingAmount.toString();
                                     amountInput.max = remainingAmount.toString();
@@ -266,7 +271,7 @@ function setupEventListeners() {
                         }
                     }
                 }
-                
+
                 // Par défaut (nouvelle facture ou pas de paiements existants)
                 amountInput.value = totalAmount.toString();
                 amountInput.max = totalAmount.toString();
@@ -293,7 +298,7 @@ function setupEventListeners() {
             let list = res.data?.items || res.data || [];
             // Ne plus masquer les produits épuisés, les afficher avec indication
             // Conserver la dernière liste pour la sélection (fallback si products[] non chargé)
-            try { window._latestProductResults = list; } catch (e) {}
+            try { window._latestProductResults = list; } catch (e) { }
             suggestBox.innerHTML = (list.length ? list : [{ __empty: true }]).map(p => {
                 if (p.__empty) {
                     return '<div class="list-group-item text-muted small">Aucun produit</div>';
@@ -303,31 +308,33 @@ function setupEventListeners() {
                 const available = hasVariants
                     ? variants.reduce((acc, v) => {
                         if (v && v.is_sold) return acc;
-                        const q = Number(v && v.quantity);
-                        return acc + (Number.isFinite(q) ? q : 1);
+                        const q = v && v.quantity;
+                        if (q == null || q === undefined) return acc + 1;
+                        const numQ = Number(q);
+                        return acc + (Number.isFinite(numQ) && numQ > 0 ? numQ : 1);
                     }, 0)
                     : Number(p.quantity || 0);
-                const stockBadge = `<span class="badge ${available>0?'bg-success':'bg-danger'} ms-2">${available>0?('Stock: '+available):'Rupture'}</span>`;
+                const stockBadge = `<span class="badge ${available > 0 ? 'bg-success' : 'bg-danger'} ms-2">${available > 0 ? ('Stock: ' + available) : 'Rupture'}</span>`;
                 const sub = [p.category, p.brand, p.model].filter(Boolean).join(' • ');
                 const isOutOfStock = available === 0;
                 return `
                 <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isOutOfStock ? 'text-muted' : ''}" data-product-id="${p.product_id}">
                     <div class="d-flex align-items-center gap-2 me-2">
                         ${(() => {
-                            if (!p.image_path) return '';
-                            const imgPath = String(p.image_path).trim();
-                            if (!imgPath) return '';
-                            let imageUrl = imgPath.startsWith('/') ? imgPath : '/' + imgPath;
-                            if (!imageUrl.startsWith('/static')) {
-                                imageUrl = '/static/' + imgPath.replace(/^\/+/, '');
-                            }
-                            return `<img src="${imageUrl}" alt="${escapeHtml(p.name || '')}"
+                        if (!p.image_path) return '';
+                        const imgPath = String(p.image_path).trim();
+                        if (!imgPath) return '';
+                        let imageUrl = imgPath.startsWith('/') ? imgPath : '/' + imgPath;
+                        if (!imageUrl.startsWith('/static')) {
+                            imageUrl = '/static/' + imgPath.replace(/^\/+/, '');
+                        }
+                        return `<img src="${imageUrl}" alt="${escapeHtml(p.name || '')}"
                                  style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;"
                                  onerror="this.style.display='none';">`;
-                        })()}
+                    })()}
                         <div>
                             <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name || '')} ${stockBadge}</div>
-                            <div class="text-muted small">${[p.barcode ? 'Code: '+escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
+                            <div class="text-muted small">${[p.barcode ? 'Code: ' + escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
                         </div>
                     </div>
                     <div class="text-nowrap ms-3">
@@ -366,30 +373,32 @@ function setupEventListeners() {
                 const available = hasVariants
                     ? variants.reduce((acc, v) => {
                         if (v && v.is_sold) return acc;
-                        const q = Number(v && v.quantity);
-                        return acc + (Number.isFinite(q) ? q : 1);
+                        const q = v && v.quantity;
+                        if (q == null || q === undefined) return acc + 1;
+                        const numQ = Number(q);
+                        return acc + (Number.isFinite(numQ) && numQ > 0 ? numQ : 1);
                     }, 0)
                     : Number(p.quantity || 0);
-                const stockBadge = `<span class="badge ${available>0?'bg-success':'bg-secondary'} ms-2">Stock: ${available}</span>`;
+                const stockBadge = `<span class="badge ${available > 0 ? 'bg-success' : 'bg-secondary'} ms-2">Stock: ${available}</span>`;
                 const sub = [p.category, p.brand, p.model].filter(Boolean).join(' • ');
                 return `
                 <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" data-exchange-product-id="${p.product_id}">
                     <div class="d-flex align-items-center gap-2 me-2">
                         ${(() => {
-                            if (!p.image_path) return '';
-                            const imgPath = String(p.image_path).trim();
-                            if (!imgPath) return '';
-                            let imageUrl = imgPath.startsWith('/') ? imgPath : '/' + imgPath;
-                            if (!imageUrl.startsWith('/static')) {
-                                imageUrl = '/static/' + imgPath.replace(/^\/+/, '');
-                            }
-                            return `<img src="${imageUrl}" alt="${escapeHtml(p.name || '')}"
+                        if (!p.image_path) return '';
+                        const imgPath = String(p.image_path).trim();
+                        if (!imgPath) return '';
+                        let imageUrl = imgPath.startsWith('/') ? imgPath : '/' + imgPath;
+                        if (!imageUrl.startsWith('/static')) {
+                            imageUrl = '/static/' + imgPath.replace(/^\/+/, '');
+                        }
+                        return `<img src="${imageUrl}" alt="${escapeHtml(p.name || '')}"
                                  style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;"
                                  onerror="this.style.display='none';">`;
-                        })()}
+                    })()}
                         <div>
                             <div class="fw-semibold d-flex align-items-center">${escapeHtml(p.name || '')} ${stockBadge}</div>
-                            <div class="text-muted small">${[p.barcode ? 'Code: '+escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
+                            <div class="text-muted small">${[p.barcode ? 'Code: ' + escapeHtml(p.barcode) : '', sub ? escapeHtml(sub) : ''].filter(Boolean).join(' • ')}</div>
                         </div>
                     </div>
                     <div class="text-nowrap ms-3">
@@ -419,7 +428,7 @@ function setupEventListeners() {
             if (!input) return;
             const exchangeItemId = input.getAttribute('data-exchange-item-id');
             if (!exchangeItemId) return;
-            
+
             // Trouver le produit et mettre à jour l'item d'échange
             const product = products.find(p => String(p.product_id) === String(productId));
             if (product) {
@@ -539,7 +548,7 @@ function handleWarrantyChange() {
     const warrantyOptions = document.getElementById('warrantyOptions');
     const warrantyInfo = document.getElementById('warrantyInfo');
     const isEnabled = warrantySwitch?.checked || false;
-    
+
     if (warrantyOptions) {
         warrantyOptions.style.display = isEnabled ? 'block' : 'none';
     }
@@ -552,10 +561,10 @@ function setDefaultDates() {
     const today = new Date().toISOString().split('T')[0];
     const invoiceDate = document.getElementById('invoiceDate');
     const paymentDate = document.getElementById('paymentDate');
-    
+
     if (invoiceDate) invoiceDate.value = today;
     if (paymentDate) paymentDate.value = today;
-    
+
     // Date d'échéance par défaut (30 jours)
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 4);
@@ -595,7 +604,7 @@ function waitForClientsLoaded(maxWaitMs = 2000) {
 // Charger les statistiques
 async function loadStats() {
     try {
-        const { data: stats } = await axios.get('/api/invoices/stats/dashboard');
+        const { data: stats } = await axios.get('/api/invoices/stats/dashboard/');
         document.getElementById('totalInvoices').textContent = stats.total_invoices || 0;
         document.getElementById('paidInvoices').textContent = stats.paid_invoices || 0;
         document.getElementById('pendingInvoices').textContent = stats.pending_invoices || 0;
@@ -633,7 +642,7 @@ async function loadInvoices(page) {
         if (search) params.search = search;
 
         // Appel direct sans couche de retry/timeout supplémentaire
-        const response = await axios.get('/api/invoices/paginated', { params });
+        const response = await axios.get('/api/invoices/paginated/', { params });
 
         const payload = response?.data || { invoices: [], total: 0, page: 1, pages: 1 };
         invoices = Array.isArray(payload.invoices) ? payload.invoices : [];
@@ -651,13 +660,13 @@ async function loadInvoices(page) {
                     sessionStorage.removeItem('invoiceSearchQuery');
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
 
         displayInvoices();
         updatePagination(payload.total || filteredInvoices.length);
     } catch (error) {
         console.error('Erreur lors du chargement des factures:', error);
-        
+
         // Afficher un message d'erreur dans le tableau
         const tbody = document.getElementById('invoicesTableBody');
         if (tbody) {
@@ -670,7 +679,7 @@ async function loadInvoices(page) {
                 </tr>
             `;
         }
-        
+
         if (typeof showAlert === 'function') {
             showAlert('Erreur lors du chargement des factures', 'danger');
         }
@@ -729,7 +738,7 @@ async function addItemByBarcode() {
     // 2) fallback server
     if (!hit) {
         try {
-            const res = await fetch(`/api/products/scan/${encodeURIComponent(code)}`, { credentials: 'include' });
+            const res = await fetch(`/api/products/scan/${encodeURIComponent(code)}/`, { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
                 if (data && data.product_id) {
@@ -813,33 +822,33 @@ function mergeProductRows() {
         if (!groups.has(key)) groups.set(key, { firstIndex: idx, rows: [] });
         groups.get(key).rows.push(row);
     });
-    
+
     // Créer un tableau avec les items fusionnés, en préservant l'ordre
     const merged = [];
     const processedProductIds = new Set();
-    
+
     invoiceItems.forEach((row, idx) => {
         const key = String(row.product_id || '');
-        
+
         // Item sans product_id (section, custom item vide) : garder tel quel
         if (!key) {
             merged.push(row);
             return;
         }
-        
+
         // Déjà traité ce product_id
         if (processedProductIds.has(key)) return;
         processedProductIds.add(key);
-        
+
         const group = groups.get(key);
         if (!group) return;
-        
+
         const rows = group.rows;
         if (rows.length === 1) {
             merged.push(rows[0]);
             return;
         }
-        
+
         // Fusionner les lignes du même produit
         const base = { ...rows[0] };
         base.scannedImeis = ([]).concat(...rows.map(r => r.scannedImeis || []));
@@ -856,7 +865,7 @@ function mergeProductRows() {
         base.total = base.quantity * (Number(base.unit_price) || 0);
         merged.push(base);
     });
-    
+
     invoiceItems = merged;
 }
 
@@ -923,13 +932,13 @@ function setupClientSearch() {
     });
 
     // Filtrage live au fil de la frappe
-    searchInput.addEventListener('input', debounce(function(e){
+    searchInput.addEventListener('input', debounce(function (e) {
         const inputVal = (e && e.target && typeof e.target.value === 'string') ? e.target.value : (searchInput.value || '');
         renderList(inputVal);
     }, 200));
 
     // Sélection par clic
-    resultsBox.addEventListener('click', function(e){
+    resultsBox.addEventListener('click', function (e) {
         const btn = e.target.closest('[data-client-id]');
         if (!btn) return;
         const id = Number(btn.getAttribute('data-client-id'));
@@ -944,17 +953,17 @@ function setupClientSearch() {
     });
 
     // Navigation clavier
-    searchInput.addEventListener('keydown', function(e){
+    searchInput.addEventListener('keydown', function (e) {
         const items = resultsBox.querySelectorAll('.list-group-item');
         const active = resultsBox.querySelector('.list-group-item.active');
         let idx = Array.from(items).indexOf(active);
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            if (idx < items.length - 1) { if (active) active.classList.remove('active'); items[idx+1]?.classList.add('active'); }
+            if (idx < items.length - 1) { if (active) active.classList.remove('active'); items[idx + 1]?.classList.add('active'); }
             else if (idx === -1 && items.length) { items[0].classList.add('active'); }
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            if (idx > 0) { if (active) active.classList.remove('active'); items[idx-1]?.classList.add('active'); }
+            if (idx > 0) { if (active) active.classList.remove('active'); items[idx - 1]?.classList.add('active'); }
         } else if (e.key === 'Enter') {
             e.preventDefault();
             if (active) {
@@ -966,7 +975,7 @@ function setupClientSearch() {
     });
 
     // Clic extérieur pour fermer
-    document.addEventListener('click', function(e){
+    document.addEventListener('click', function (e) {
         if (!searchInput.contains(e.target) && !resultsBox.contains(e.target)) {
             closeResults();
         }
@@ -1002,12 +1011,12 @@ function displayInvoices() {
         const due = invoice.due_date || invoice.dueDate;
         const total = Number((invoice.total ?? invoice.total_amount) || 0);
         const isPaid = String(invoice.status).toUpperCase() === 'PAID';
-        
+
         // Déterminer le type de facture et son badge
         const invoiceType = invoice.invoice_type || 'normal';
         let typeBadge = '';
         let typeLabel = '';
-        
+
         if (invoiceType === 'flash_sale') {
             typeBadge = 'bg-warning text-dark';
             typeLabel = '<i class="bi bi-lightning-fill me-1"></i>Flash';
@@ -1018,10 +1027,10 @@ function displayInvoices() {
             typeBadge = 'bg-secondary';
             typeLabel = '<i class="bi bi-receipt me-1"></i>Normal';
         }
-        
+
         // Formater la date sans l'heure
         const dateTimeDisplay = invDate ? formatDate(invDate) : '-';
-        
+
         return `
         <tr>
             <td>
@@ -1151,21 +1160,21 @@ function updatePagination(totalCount) {
     const count = Number.isFinite(totalCount) ? Number(totalCount) : filteredInvoices.length;
     const totalPages = Math.ceil(count / itemsPerPage);
     const paginationContainer = document.getElementById('pagination-container');
-    
+
     if (!paginationContainer || totalPages <= 1) {
         if (paginationContainer) paginationContainer.innerHTML = '';
         return;
     }
 
     let paginationHTML = '<nav><ul class="pagination justify-content-center">';
-    
+
     // Bouton précédent
     paginationHTML += `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="changePage(${currentPage - 1})">Précédent</a>
         </li>
     `;
-    
+
     // Numéros de page
     for (let i = 1; i <= totalPages; i++) {
         if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
@@ -1178,14 +1187,14 @@ function updatePagination(totalCount) {
             paginationHTML += '<li class="page-item disabled"><span class="page-link">...</span></li>';
         }
     }
-    
+
     // Bouton suivant
     paginationHTML += `
         <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="changePage(${currentPage + 1})">Suivant</a>
         </li>
     `;
-    
+
     paginationHTML += '</ul></nav>';
     paginationContainer.innerHTML = paginationHTML;
 }
@@ -1211,7 +1220,7 @@ function openInvoiceModal() {
             return;
         }
         // Charger les produits dès l'ouverture si la liste est vide
-        try { if (!Array.isArray(products) || products.length === 0) { loadProducts().catch(()=>{}); } } catch(e) {}
+        try { if (!Array.isArray(products) || products.length === 0) { loadProducts().catch(() => { }); } } catch (e) { }
 
         const titleEl = document.getElementById('invoiceModalTitle');
         const formEl = document.getElementById('invoiceForm');
@@ -1222,19 +1231,19 @@ function openInvoiceModal() {
         if (titleEl) {
             titleEl.innerHTML = '<i class="bi bi-plus-circle me-2"></i>Nouvelle Facture';
         }
-        
+
         // Reset du formulaire
         if (formEl) {
             formEl.reset();
             try {
                 formEl.dataset.quotationId = '';
-            } catch(e) {}
+            } catch (e) { }
         }
-        
+
         if (idEl) {
             idEl.value = '';
         }
-        
+
         // Reset client search/hidden
         try {
             const hidden = document.getElementById('clientSelect');
@@ -1243,16 +1252,16 @@ function openInvoiceModal() {
             if (hidden) hidden.value = '';
             if (input) input.value = '';
             if (box) box.style.display = 'none';
-        } catch(e) {}
-        
+        } catch (e) { }
+
         setDefaultDates();
-        
+
         // Pré-remplir un numéro de facture fiable depuis le serveur
         if (numberEl) {
             try {
                 numberEl.value = '';
                 numberEl.placeholder = 'Chargement du numéro...';
-                axios.get('/api/invoices/next-number').then(({ data }) => {
+                axios.get('/api/invoices/next-number/').then(({ data }) => {
                     if (data && data.invoice_number) {
                         numberEl.value = data.invoice_number;
                         numberEl.placeholder = '';
@@ -1267,27 +1276,27 @@ function openInvoiceModal() {
                     numberEl.value = '';
                     numberEl.placeholder = 'Sera généré automatiquement';
                 });
-            } catch(e) { /* ignore */ }
+            } catch (e) { /* ignore */ }
         }
-        
+
         // Démarrer avec une liste vide; l'utilisateur scanne pour ajouter
         invoiceItems = [];
         // Réinitialiser les quantités de devis
         quoteQtyByProductId = new Map();
         updateInvoiceItemsDisplay();
-        
+
         // Reset méthode de paiement
         try {
             const pmSel = document.getElementById('invoicePaymentMethod');
             if (pmSel) pmSel.value = '';
-        } catch (e) {}
-        
+        } catch (e) { }
+
         // Defaults for TVA UI
         const taxSwitch = document.getElementById('showTaxSwitch');
         const taxRateInput = document.getElementById('taxRateInput');
         if (taxSwitch) taxSwitch.checked = true;
         if (taxRateInput) taxRateInput.value = 18;
-        
+
         // Reset garantie
         const warrantySwitch = document.getElementById('hasWarrantySwitch');
         const warrantyOptions = document.getElementById('warrantyOptions');
@@ -1298,7 +1307,7 @@ function openInvoiceModal() {
         // Sélectionner 12 mois par défaut
         const warranty12 = document.getElementById('warranty12months');
         if (warranty12) warranty12.checked = true;
-        
+
         // Ensure listeners are bound in case modal was created after initial setup
         setupTaxControls();
         setupWarrantyControls();
@@ -1340,7 +1349,7 @@ function openInvoiceModal() {
                 canvas.addEventListener('touchstart', start, { passive: false });
                 canvas.addEventListener('touchmove', move, { passive: false });
                 canvas.addEventListener('touchend', end);
-                
+
                 const clearBtn = document.getElementById('signatureClearBtn');
                 if (clearBtn) {
                     clearBtn.addEventListener('click', () => {
@@ -1377,7 +1386,7 @@ function openInvoiceModal() {
                 showError('Erreur lors de l\'ouverture du formulaire de facture');
             }
         }
-        
+
     } catch (error) {
         console.error('Erreur dans openInvoiceModal:', error);
         if (typeof showError === 'function') {
@@ -1390,7 +1399,7 @@ function openInvoiceModal() {
 async function preloadPrefilledInvoiceFromQuotation(prefill) {
     openInvoiceModal();
     document.getElementById('invoiceModalTitle').innerHTML = '<i class="bi bi-receipt me-2"></i>Facture depuis devis ' + (prefill?.quotation_number || '');
-    try { if (prefill?.quotation_id) document.getElementById('invoiceForm').dataset.quotationId = String(prefill.quotation_id); } catch(e) {}
+    try { if (prefill?.quotation_id) document.getElementById('invoiceForm').dataset.quotationId = String(prefill.quotation_id); } catch (e) { }
     // Client
     try {
         const clientSel = document.getElementById('clientSelect');
@@ -1405,12 +1414,12 @@ async function preloadPrefilledInvoiceFromQuotation(prefill) {
                     try {
                         if (!Array.isArray(clients)) clients = [];
                         if (!clients.some(x => Number(x.client_id) === Number(data.client_id))) clients.push(data);
-                    } catch(e) {}
+                    } catch (e) { }
                 }
-            } catch(e) {}
+            } catch (e) { }
         }
         if (input) input.value = c ? (c.name || '') : (prefill?.client_name || '');
-    } catch(e) {}
+    } catch (e) { }
     // Date: pour une conversion, utiliser la date du jour (ne pas réutiliser la date du devis)
     try {
         const invDate = document.getElementById('invoiceDate');
@@ -1418,7 +1427,7 @@ async function preloadPrefilledInvoiceFromQuotation(prefill) {
             const today = new Date().toISOString().split('T')[0];
             invDate.value = today;
         }
-    } catch(e) {}
+    } catch (e) { }
     // Articles
     invoiceItems = [];
     const _quoteAgg = new Map();
@@ -1434,7 +1443,7 @@ async function preloadPrefilledInvoiceFromQuotation(prefill) {
         try {
             const exists = products && products.some(p => Number(p.product_id) === Number(normPid));
             if (!exists) { isMissingPid = true; normPid = ''; }
-        } catch(e) {}
+        } catch (e) { }
         const hasVariants = (productVariantsByProductId.get(Number(normPid)) || []).length > 0;
         invoiceItems.push({
             id: Date.now() + Math.random(),
@@ -1453,7 +1462,7 @@ async function preloadPrefilledInvoiceFromQuotation(prefill) {
             const pid = Number(it.product_id);
             const qty = Number(it.quantity || 0);
             if (!Number.isNaN(pid)) _quoteAgg.set(pid, (_quoteAgg.get(pid) || 0) + qty);
-        } catch(e) {}
+        } catch (e) { }
     });
     // Exposer les quantités du devis dans l'UI (affichage "Qté devis: X")
     quoteQtyByProductId = _quoteAgg;
@@ -1476,10 +1485,10 @@ function addInvoiceItem() {
         is_gift: false,  // Article gratuit/cadeau
         external_price: null  // Prix d'achat externe (optionnel)
     };
-    
+
     invoiceItems.push(newItem);
     // S'assurer que les produits sont chargés pour le select
-    try { if (!Array.isArray(products) || products.length === 0) { loadProducts().catch(()=>{}); } } catch(e) {}
+    try { if (!Array.isArray(products) || products.length === 0) { loadProducts().catch(() => { }); } } catch (e) { }
     updateInvoiceItemsDisplay();
 }
 
@@ -1597,56 +1606,61 @@ function updateInvoiceItemsDisplay() {
                         <select class="form-select form-select-sm" onchange="selectProduct(${item.id}, this.value)">
                             <option value="">Sélectionner un produit</option>
                             ${(() => {
-                                const productList = Array.isArray(products) && products.length
-                                    ? products
-                                    : (Array.isArray(window._latestProductResults) ? window._latestProductResults : []);
-                                // Si le produit actuel n'est pas dans la liste, l'ajouter en premier
-                                const currentProductInList = item.product_id && productList.some(p => p.product_id == item.product_id);
-                                let options = '';
-                                if (item.product_id && !currentProductInList) {
-                                    options += `<option value="${item.product_id}" selected>${escapeHtml(item.product_name || 'Produit #' + item.product_id)} - ${formatCurrency(item.unit_price)}</option>`;
-                                }
-                                options += productList.map(product => {
-                                    const variants = productVariantsByProductId.get(Number(product.product_id)) || [];
-                                    const available = variants.length > 0
-                                        ? variants.reduce((acc, v) => {
-                                            if (v && v.is_sold) return acc;
-                                            const q = Number(v && v.quantity);
-                                            return acc + (Number.isFinite(q) ? q : 1);
-                                        }, 0)
-                                        : Number(product.quantity || 0);
-                                    const alreadySelected = selectedProductIds.has(Number(product.product_id)) && Number(product.product_id) !== Number(item.product_id);
-                                    const isOutOfStock = available === 0;
-                                    const disabled = alreadySelected || isOutOfStock;
-                                    return `
+                const productList = Array.isArray(products) && products.length
+                    ? products
+                    : (Array.isArray(window._latestProductResults) ? window._latestProductResults : []);
+                // Si le produit actuel n'est pas dans la liste, l'ajouter en premier
+                const currentProductInList = item.product_id && productList.some(p => p.product_id == item.product_id);
+                let options = '';
+                if (item.product_id && !currentProductInList) {
+                    options += `<option value="${item.product_id}" selected>${escapeHtml(item.product_name || 'Produit #' + item.product_id)} - ${formatCurrency(item.unit_price)}</option>`;
+                }
+                options += productList.map(product => {
+                    let variants = productVariantsByProductId.get(Number(product.product_id)) || [];
+                    if (!variants.length && Array.isArray(product.variants)) {
+                        variants = product.variants;
+                    }
+                    const available = variants.length > 0
+                        ? variants.reduce((acc, v) => {
+                            if (v && v.is_sold) return acc;
+                            const q = v && v.quantity;
+                            if (q == null || q === undefined) return acc + 1;
+                            const numQ = Number(q);
+                            return acc + (Number.isFinite(numQ) && numQ > 0 ? numQ : 1);
+                        }, 0)
+                        : Number(product.quantity || 0);
+                    const alreadySelected = selectedProductIds.has(Number(product.product_id)) && Number(product.product_id) !== Number(item.product_id);
+                    const isOutOfStock = available === 0;
+                    const disabled = alreadySelected || isOutOfStock;
+                    return `
                                 <option value="${product.product_id}" ${product.product_id == item.product_id ? 'selected' : ''} ${disabled ? 'disabled' : ''}>
                                     ${escapeHtml(product.name)} - ${formatCurrency(product.price)}${product.wholesale_price ? ` / Gros: ${formatCurrency(product.wholesale_price)}` : ''} ${isOutOfStock ? '(épuisé)' : `(Stock: ${available})`} ${alreadySelected ? '(déjà sélectionné)' : ''}
                                 </option>`;
-                                }).join('');
-                                return options;
-                            })()}
+                }).join('');
+                return options;
+            })()}
                         </select>
                     </div>
                     <div class="product-suggestions list-group d-none" style="position:absolute; left:0; right:0; top:100%; z-index:3000; max-height:240px; overflow:auto; width:100%; background:#fff; border:1px solid rgba(0,0,0,.125); border-radius:.25rem; box-shadow:0 2px 6px rgba(0,0,0,.15);"></div>
                 </div>
                 `}
                 ${(() => {
-                    const list = item.scannedImeis || [];
-                    if (!list.length) return '';
-                    const variants = productVariantsByProductId.get(Number(item.product_id)) || [];
-                    return `<div class=\"small text-muted mt-1\">IMEI: ` + list.map((im, idx) => {
-                        const v = variants.find(x => _normalizeCode(x.imei_serial) === _normalizeCode(im));
-                        const condPart = (v && v.condition)
-                            ? ' (' + escapeHtml(String(v.condition).charAt(0).toUpperCase() + String(v.condition).slice(1)) + ')'
-                            : '';
-                        return `
+                const list = item.scannedImeis || [];
+                if (!list.length) return '';
+                const variants = productVariantsByProductId.get(Number(item.product_id)) || [];
+                return `<div class=\"small text-muted mt-1\">IMEI: ` + list.map((im, idx) => {
+                    const v = variants.find(x => _normalizeCode(x.imei_serial) === _normalizeCode(im));
+                    const condPart = (v && v.condition)
+                        ? ' (' + escapeHtml(String(v.condition).charAt(0).toUpperCase() + String(v.condition).slice(1)) + ')'
+                        : '';
+                    return `
                         <span class=\"badge bg-light text-dark border me-1\">${escapeHtml(im)}${condPart}
                             <a href=\"#\" class=\"text-danger text-decoration-none ms-1\" onclick=\"removeScannedImeiAt(${item.id}, ${idx}); return false;\">&times;</a>
                         </span>`;
-                    }).join('') + `<a href=\"#\" class=\"ms-1\" onclick=\"clearScannedImeis(${item.id}); return false;\">Tout supprimer</a></div>`;
-                })()}
-                ${(() => { try { const q = quoteQtyByProductId.get(Number(item.product_id)); return (typeof q === 'number') ? `<div class=\"small text-muted mt-1\">Qté devis: ${q}</div>` : ''; } catch(e){ return ''; } })()}
-                ${(() => { try { const p = (products||[]).find(pp => Number(pp.product_id) === Number(item.product_id)) || (Array.isArray(window._latestProductResults)? window._latestProductResults.find(pp => Number(pp.product_id) === Number(item.product_id)) : null); if (!p) return ''; const stock = computeAvailableStock(p); const cls = stock>0 ? 'text-success' : 'text-danger'; return `<div class=\"small ${cls} mt-1\">Stock: ${stock}</div>`; } catch(e){ return ''; } })()}
+                }).join('') + `<a href=\"#\" class=\"ms-1\" onclick=\"clearScannedImeis(${item.id}); return false;\">Tout supprimer</a></div>`;
+            })()}
+                ${(() => { try { const q = quoteQtyByProductId.get(Number(item.product_id)); return (typeof q === 'number') ? `<div class=\"small text-muted mt-1\">Qté devis: ${q}</div>` : ''; } catch (e) { return ''; } })()}
+                ${(() => { try { const p = (products || []).find(pp => Number(pp.product_id) === Number(item.product_id)) || (Array.isArray(window._latestProductResults) ? window._latestProductResults.find(pp => Number(pp.product_id) === Number(item.product_id)) : null); if (!p) return ''; const stock = computeAvailableStock(p); const cls = stock > 0 ? 'text-success' : 'text-danger'; return `<div class=\"small ${cls} mt-1\">Stock: ${stock}</div>`; } catch (e) { return ''; } })()}
             </td>
             <td>
                 <select class="form-select form-select-sm" onchange="selectVariant(${item.id}, this.value)" ${(item.is_custom || !item.product_id) ? 'disabled' : ''}>
@@ -1661,18 +1675,18 @@ function updateInvoiceItemsDisplay() {
             </td>
             <td>
                 ${!item.is_custom && item.product_id ? (() => {
-                    const product = (products||[]).find(p => p.product_id == item.product_id) || (Array.isArray(window._latestProductResults)? window._latestProductResults.find(p => p.product_id == item.product_id) : null);
-                    const hasWholesale = product && product.wholesale_price;
-                    return hasWholesale ? `
+                const product = (products || []).find(p => p.product_id == item.product_id) || (Array.isArray(window._latestProductResults) ? window._latestProductResults.find(p => p.product_id == item.product_id) : null);
+                const hasWholesale = product && product.wholesale_price;
+                return hasWholesale ? `
                         <select class="form-select form-select-sm" onchange="togglePriceType(${item.id}, this.value === 'wholesale')">
                             <option value="unit" ${item.price_type !== 'wholesale' ? 'selected' : ''}>Unitaire</option>
                             <option value="wholesale" ${item.price_type === 'wholesale' ? 'selected' : ''}>Gros</option>
                         </select>
                     ` : '<small class="text-muted">-</small>';
-                })() : '<small class="text-muted">-</small>'}
+            })() : '<small class="text-muted">-</small>'}
             </td>
             <td>
-                <input type="text" class="form-control form-control-sm" value="${(item.unit_price).toLocaleString('fr-FR') }"
+                <input type="text" class="form-control form-control-sm" value="${(item.unit_price).toLocaleString('fr-FR')}"
                        oninput="handlePriceInput(${item.id}, this)"
                        onchange="handlePriceInput(${item.id}, this)">
             </td>
@@ -1686,22 +1700,22 @@ function updateInvoiceItemsDisplay() {
             </td>
             <td>
                 ${(() => {
-                    // Utiliser external_profit si disponible (depuis la DB), sinon calculer
-                    if (item.external_profit !== null && item.external_profit !== undefined) {
-                        const profit = Number(item.external_profit);
-                        const profitClass = profit >= 0 ? 'text-success' : 'text-danger';
-                        return `<strong class="${profitClass}">${formatCurrency(profit)}</strong>`;
-                    }
-                    const externalPrice = item.external_price ? Number(item.external_price) : null;
-                    const quantity = Number(item.quantity) || 0;
-                    const total = Number(item.total) || 0;
-                    if (externalPrice !== null && externalPrice > 0) {
-                        const profit = total - (externalPrice * quantity);
-                        const profitClass = profit >= 0 ? 'text-success' : 'text-danger';
-                        return `<strong class="${profitClass}">${formatCurrency(profit)}</strong>`;
-                    }
-                    return '<small class="text-muted">-</small>';
-                })()}
+                // Utiliser external_profit si disponible (depuis la DB), sinon calculer
+                if (item.external_profit !== null && item.external_profit !== undefined) {
+                    const profit = Number(item.external_profit);
+                    const profitClass = profit >= 0 ? 'text-success' : 'text-danger';
+                    return `<strong class="${profitClass}">${formatCurrency(profit)}</strong>`;
+                }
+                const externalPrice = item.external_price ? Number(item.external_price) : null;
+                const quantity = Number(item.quantity) || 0;
+                const total = Number(item.total) || 0;
+                if (externalPrice !== null && externalPrice > 0) {
+                    const profit = total - (externalPrice * quantity);
+                    const profitClass = profit >= 0 ? 'text-success' : 'text-danger';
+                    return `<strong class="${profitClass}">${formatCurrency(profit)}</strong>`;
+                }
+                return '<small class="text-muted">-</small>';
+            })()}
             </td>
             <td><strong class="row-total">${formatCurrency(item.total)}</strong></td>
             <td class="text-center">
@@ -1736,14 +1750,14 @@ function initSortable() {
     if (!tbody || typeof Sortable === 'undefined') return;
     // Détruire l'instance précédente si elle existe
     if (tbody._sortableInstance) {
-        try { tbody._sortableInstance.destroy(); } catch(e) {}
+        try { tbody._sortableInstance.destroy(); } catch (e) { }
     }
     tbody._sortableInstance = new Sortable(tbody, {
         animation: 150,
         handle: '.drag-handle',
         ghostClass: 'table-primary',
         chosenClass: 'table-info',
-        onEnd: function(evt) {
+        onEnd: function (evt) {
             // Réordonner invoiceItems selon le nouvel ordre du DOM
             const rows = Array.from(tbody.querySelectorAll('tr[data-item-id]'));
             const newOrder = rows.map(row => Number(row.getAttribute('data-item-id')));
@@ -1777,7 +1791,7 @@ function selectProduct(itemId, productId, useBulkPrice = false) {
                 if (!products.some(p => Number(p.product_id) === Number(data.product_id))) {
                     products.push(data);
                 }
-                try { if (Array.isArray(data.variants)) productVariantsByProductId.set(Number(data.product_id), data.variants); } catch (e) {}
+                try { if (Array.isArray(data.variants)) productVariantsByProductId.set(Number(data.product_id), data.variants); } catch (e) { }
                 // Appliquer la sélection
                 selectProduct(itemId, data.product_id, useBulkPrice);
             }).catch(() => {
@@ -1792,7 +1806,7 @@ function selectProduct(itemId, productId, useBulkPrice = false) {
                     calculateTotals();
                 }
             });
-        } catch (e) {}
+        } catch (e) { }
         return;
     }
     if (item && product) {
@@ -1813,7 +1827,7 @@ function selectProduct(itemId, productId, useBulkPrice = false) {
         try {
             const variants = Array.isArray(product.variants) ? product.variants : [];
             if (variants.length) productVariantsByProductId.set(Number(product.product_id), variants);
-        } catch (e) {}
+        } catch (e) { }
         updateInvoiceItemsDisplay();
         calculateTotals();
     }
@@ -1915,7 +1929,7 @@ function updateItemQuantity(itemId, quantity) {
             item.quantity = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
         }
         item.total = item.quantity * item.unit_price;
-        
+
         updateInvoiceItemsDisplay();
         calculateTotals();
     }
@@ -1951,7 +1965,7 @@ function handlePriceInput(itemId, inputEl) {
     inputEl.value = digitsOnly;
     updateItemPrice(itemId, digitsOnly);
     // restore caret position if possible
-    try { inputEl.setSelectionRange(caret, caret); } catch (e) {}
+    try { inputEl.setSelectionRange(caret, caret); } catch (e) { }
 }
 
 // Debounce pour éviter les appels multiples
@@ -1959,19 +1973,19 @@ const externalPriceInputTimers = new Map();
 
 function handleExternalPriceInput(itemId, inputEl, event) {
     if (!inputEl || !event) return;
-    
+
     // Empêcher la propagation pour éviter les déclenchements multiples
     event.stopPropagation();
-    
+
     // Annuler le timer précédent pour cet item
     if (externalPriceInputTimers.has(itemId)) {
         clearTimeout(externalPriceInputTimers.get(itemId));
     }
-    
+
     // Sauvegarder la position du curseur
     const caret = inputEl.selectionStart;
     const rawValue = inputEl.value || '';
-    
+
     // Programmer la mise à jour avec un délai (debounce)
     const timer = setTimeout(() => {
         try {
@@ -1979,15 +1993,15 @@ function handleExternalPriceInput(itemId, inputEl, event) {
             if (!item) {
                 return;
             }
-            
+
             // Nettoyer la valeur pour ne garder que les chiffres
             const digitsOnly = rawValue.replace(/\D/g, '');
             const externalPrice = digitsOnly && digitsOnly.length > 0 ? parseFloat(digitsOnly) : null;
-            
+
             // Mettre à jour le prix externe dans l'objet item seulement si différent
             if (item.external_price !== externalPrice) {
                 item.external_price = externalPrice;
-                
+
                 // Mettre à jour la valeur de l'input pour refléter le nettoyage (sans déclencher d'événement)
                 if (inputEl.value !== digitsOnly) {
                     // Utiliser une approche plus sûre : créer un nouvel événement pour éviter la boucle
@@ -2000,9 +2014,9 @@ function handleExternalPriceInput(itemId, inputEl, event) {
                     try {
                         const newCaret = Math.min(caret, digitsOnly.length);
                         inputEl.setSelectionRange(newCaret, newCaret);
-                    } catch (e) {}
+                    } catch (e) { }
                 }
-                
+
                 // Mettre à jour la cellule du bénéfice
                 try {
                     const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
@@ -2034,7 +2048,7 @@ function handleExternalPriceInput(itemId, inputEl, event) {
             externalPriceInputTimers.delete(itemId);
         }
     }, 200); // Délai de 200ms pour le debounce
-    
+
     externalPriceInputTimers.set(itemId, timer);
 }
 
@@ -2098,7 +2112,7 @@ function calculateTotals() {
     document.getElementById('invoiceForm').dataset.subtotal = String(subtotal);
     document.getElementById('invoiceForm').dataset.taxAmount = String(taxAmount);
     document.getElementById('invoiceForm').dataset.total = String(total);
-    
+
     // Mettre à jour le montant maximum de paiement immédiat
     updatePaymentNowMaxAmount();
 }
@@ -2126,14 +2140,14 @@ async function saveInvoice(status) {
         const modalEl = document.getElementById('invoiceModal');
         const footerButtons = modalEl ? modalEl.querySelectorAll('.modal-footer button, .modal-footer a') : [];
         const prevStates = [];
-        try { footerButtons.forEach(btn => { prevStates.push([btn, btn.disabled, btn.innerHTML]); btn.disabled = true; }); } catch(e) {}
+        try { footerButtons.forEach(btn => { prevStates.push([btn, btn.disabled, btn.innerHTML]); btn.disabled = true; }); } catch (e) { }
         document.body.style.cursor = 'wait';
         const invoiceType = document.getElementById('invoiceType')?.value || 'normal';
         const clientSelectValue = document.getElementById('clientSelect')?.value;
         // Construire la date avec l'heure actuelle
         const dateValue = document.getElementById('invoiceDate').value;
         const dateWithTime = dateValue ? new Date(dateValue + 'T' + new Date().toTimeString().split(' ')[0]).toISOString() : new Date().toISOString();
-        
+
         const invoiceData = {
             invoice_number: document.getElementById('invoiceNumber').value,
             invoice_type: invoiceType,
@@ -2149,10 +2163,10 @@ async function saveInvoice(status) {
             subtotal: parseFloat(document.getElementById('invoiceForm').dataset.subtotal || '0'),
             tax_amount: parseFloat(document.getElementById('invoiceForm').dataset.taxAmount || '0'),
             total: parseFloat(document.getElementById('invoiceForm').dataset.total || '0'),
-            quotation_id: (function(){ try { const v = document.getElementById('invoiceForm').dataset.quotationId; return v ? Number(v) : null; } catch(e) { return null; } })(),
+            quotation_id: (function () { try { const v = document.getElementById('invoiceForm').dataset.quotationId; return v ? Number(v) : null; } catch (e) { return null; } })(),
             // Champs de garantie
             has_warranty: document.getElementById('hasWarrantySwitch')?.checked || false,
-            warranty_duration: (function() {
+            warranty_duration: (function () {
                 const hasWarranty = document.getElementById('hasWarrantySwitch')?.checked;
                 if (!hasWarranty) return null;
                 const selectedDuration = document.querySelector('input[name="warrantyDuration"]:checked');
@@ -2270,7 +2284,7 @@ async function saveInvoice(status) {
                 const cleaned = (invoiceData.notes || '').replace(/\n?\n?__SERIALS__=.*$/s, '');
                 invoiceData.notes = cleaned ? `${cleaned}\n\n__SERIALS__=${JSON.stringify(serialsMeta)}` : `__SERIALS__=${JSON.stringify(serialsMeta)}`;
             }
-        } catch (e) {}
+        } catch (e) { }
 
         // Validation : client_id obligatoire sauf pour les ventes flash
         const requiresClient = invoiceData.invoice_type !== 'flash_sale';
@@ -2296,12 +2310,12 @@ async function saveInvoice(status) {
             const canvas = document.getElementById('signatureCanvas');
             if (fileInput && fileInput.files && fileInput.files[0]) {
                 const file = fileInput.files[0];
-                signatureDataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result||'')); r.readAsDataURL(file); });
+                signatureDataUrl = await new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result || '')); r.readAsDataURL(file); });
             } else if (canvas) {
                 const tmp = document.createElement('canvas'); tmp.width = canvas.width; tmp.height = canvas.height;
                 if (canvas.toDataURL() !== tmp.toDataURL()) signatureDataUrl = canvas.toDataURL('image/png');
             }
-        } catch(e) {}
+        } catch (e) { }
         if (signatureDataUrl) {
             invoiceData.notes = (invoiceData.notes || '') + `\n\n__SIGNATURE__=${signatureDataUrl}`;
         }
@@ -2341,7 +2355,7 @@ async function saveInvoice(status) {
                 // but since we already sent the request, we keep for next time; also update notes locally
                 // no-op if not needed
             }
-        } catch(e) {}
+        } catch (e) { }
 
         // Paiement immédiat si demandé: on ATTEND le POST paiement
         const doPay = document.getElementById('paymentNowSwitch')?.checked;
@@ -2349,7 +2363,7 @@ async function saveInvoice(status) {
             try {
                 const inv = responseData || {};
                 const invId = inv.invoice_id || inv.id || document.getElementById('invoiceId').value;
-                await axios.post(`/api/invoices/${invId || ''}/payments`, {
+                await axios.post(`/api/invoices/${invId || ''}/payments/`, {
                     amount: Math.round(parseFloat(document.getElementById('paymentNowAmount').value || '0')),
                     payment_method: document.getElementById('paymentNowMethod').value,
                     reference: document.getElementById('paymentNowRef').value || null
@@ -2361,12 +2375,12 @@ async function saveInvoice(status) {
         await loadInvoices();
         await loadStats();
         await loadProducts();
-        
+
         showSuccess(invoiceId ? 'Facture modifiée avec succès' : 'Facture créée avec succès');
         // Unlock UI using previous states
-        try { prevStates.forEach(([btn, prevDisabled, prevHtml]) => { btn.disabled = prevDisabled; if (prevHtml !== undefined) btn.innerHTML = prevHtml; }); } catch(e) {}
+        try { prevStates.forEach(([btn, prevDisabled, prevHtml]) => { btn.disabled = prevDisabled; if (prevHtml !== undefined) btn.innerHTML = prevHtml; }); } catch (e) { }
         document.body.style.cursor = '';
-        
+
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         showError(error.message || 'Erreur lors de la sauvegarde de la facture');
@@ -2374,7 +2388,7 @@ async function saveInvoice(status) {
         // Ensure UI unlock if an error occurred before normal unlock
         const modalEl = document.getElementById('invoiceModal');
         const footerButtons = modalEl ? modalEl.querySelectorAll('.modal-footer button, .modal-footer a') : [];
-        try { footerButtons.forEach(btn => { btn.disabled = false; }); } catch(e) {}
+        try { footerButtons.forEach(btn => { btn.disabled = false; }); } catch (e) { }
         document.body.style.cursor = '';
     }
 }
@@ -2382,13 +2396,13 @@ async function saveInvoice(status) {
 async function saveQuickClient() {
     const name = (document.getElementById('qcName')?.value || '').trim();
     if (!name) { showWarning('Le nom du client est obligatoire'); return; }
-    
-    const payload = { 
-        name, 
-        phone: (document.getElementById('qcPhone')?.value || '').trim(), 
-        email: (document.getElementById('qcEmail')?.value || '').trim() 
+
+    const payload = {
+        name,
+        phone: (document.getElementById('qcPhone')?.value || '').trim(),
+        email: (document.getElementById('qcEmail')?.value || '').trim()
     };
-    
+
     try {
         const { data: client } = await axios.post('/api/clients/', payload);
         // Rafraîchir via recherche serveur pour s'assurer de l'affichage immédiat
@@ -2399,12 +2413,12 @@ async function saveQuickClient() {
             }
             // Mettre à jour le hidden
             selectClient(client.client_id, client.name);
-        } catch(e) {}
+        } catch (e) { }
         // Optionnel: recharger une courte liste de clients récents
         try {
             const { data } = await axios.get('/api/clients/', { params: { search: client.name, limit: 8 } });
             clients = Array.isArray(data) ? data : (data.items || []);
-        } catch(e) {}
+        } catch (e) { }
         const qm = bootstrap.Modal.getInstance(document.getElementById('clientQuickModal'));
         if (qm) qm.hide();
         showSuccess('Client ajouté');
@@ -2412,14 +2426,14 @@ async function saveQuickClient() {
         console.error('Erreur lors de la création du client:', e);
         console.error('Payload envoyé:', payload);
         console.error('Response:', e.response);
-        
+
         let errorMessage = 'Erreur lors de la création du client';
         if (e.response?.data?.detail) {
             errorMessage = e.response.data.detail;
         } else if (e.message) {
             errorMessage = e.message;
         }
-        
+
         showError(errorMessage);
     }
 }
@@ -2519,7 +2533,7 @@ async function generateDeliveryNote(invoiceId) {
     if (!invoiceId) return;
     if (!confirm('Générer un bon de livraison pour cette facture ?')) return;
     try {
-        const { data } = await axios.post(`/api/invoices/${invoiceId}/delivery-note`, {});
+        const { data } = await axios.post(`/api/invoices/${invoiceId}/delivery-note/`, {});
         showSuccess('Bon de livraison créé');
         // Ouvrir la page d'impression BL si disponible dans l'app
         try {
@@ -2528,7 +2542,7 @@ async function generateDeliveryNote(invoiceId) {
                 const popup = window.open(`/delivery-notes/print/${dnId}`, 'delivery_note_print', 'width=980,height=800,scrollbars=1,resizable=1');
                 if (!popup) showWarning('La fenêtre pop-up a été bloquée par le navigateur');
             }
-        } catch (e) {}
+        } catch (e) { }
     } catch (error) {
         console.error('Erreur génération BL:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la génération du bon de livraison');
@@ -2551,7 +2565,7 @@ async function loadInvoiceDetail(invoiceId) {
                 if (!Number.isNaN(pid)) quoteQtyByProductId.set(pid, qty);
             });
         }
-    } catch(e){}
+    } catch (e) { }
     // Fallback: if not present in notes, fetch the original quotation and compute quantities
     if (!quoteQtyByProductId.size && inv.quotation_id) {
         try {
@@ -2563,13 +2577,13 @@ async function loadInvoiceDetail(invoiceId) {
                     quoteQtyByProductId.set(pid, (quoteQtyByProductId.get(pid) || 0) + qty);
                 }
             });
-        } catch(e) {}
+        } catch (e) { }
     }
 
     const items = (inv.items || []).map(it => `
         <tr>
             <td>${escapeHtml(it.product_name || '')}</td>
-            <td class="text-end">${it.quantity}${(() => { try { const q = quoteQtyByProductId.get(Number(it.product_id)); return (typeof q === 'number') ? `<div class=\"text-muted small\">Qté devis: ${q}</div>` : ''; } catch(e){ return ''; } })()}</td>
+            <td class="text-end">${it.quantity}${(() => { try { const q = quoteQtyByProductId.get(Number(it.product_id)); return (typeof q === 'number') ? `<div class=\"text-muted small\">Qté devis: ${q}</div>` : ''; } catch (e) { return ''; } })()}</td>
             <td class="text-end">${formatCurrency(it.price)}</td>
             <td class="text-end">${formatCurrency(it.total)}</td>
         </tr>
@@ -2581,7 +2595,7 @@ async function loadInvoiceDetail(invoiceId) {
         Object.keys(serverMap).forEach(pid => {
             serialsMap.set(String(pid), Array.isArray(serverMap[pid]) ? serverMap[pid] : []);
         });
-    } catch(e) {}
+    } catch (e) { }
     if (serialsMap.size === 0) {
         try {
             const txt = String(inv.notes || '');
@@ -2601,7 +2615,7 @@ async function loadInvoiceDetail(invoiceId) {
                     (e.imeis || []).forEach(im => serialsMap.get(pid).push(im));
                 });
             }
-        } catch(e){}
+        } catch (e) { }
     }
 
     body.innerHTML = `
@@ -2654,15 +2668,15 @@ async function loadInvoiceDetail(invoiceId) {
                 <thead><tr><th>Date</th><th class=\"text-end\">Montant</th><th>Mode</th><th>Réf.</th><th></th></tr></thead>
                 <tbody>
                 ${(() => {
-                    try {
-                        const sorted = [...(inv.payments || [])].sort((a, b) => {
-                            const da = new Date(a.payment_date || a.date || 0).getTime();
-                            const db = new Date(b.payment_date || b.date || 0).getTime();
-                            return da - db; // tri chronologique croissant
-                        });
-                        return sorted.map(p => `
+                try {
+                    const sorted = [...(inv.payments || [])].sort((a, b) => {
+                        const da = new Date(a.payment_date || a.date || 0).getTime();
+                        const db = new Date(b.payment_date || b.date || 0).getTime();
+                        return da - db; // tri chronologique croissant
+                    });
+                    return sorted.map(p => `
                             <tr>
-                                <td>${formatDateTime(p.payment_date || p.date || '-') }</td>
+                                <td>${formatDateTime(p.payment_date || p.date || '-')}</td>
                                 <td class=\"text-end\">${formatCurrency(p.amount || 0)}</td>
                                 <td>${escapeHtml(p.payment_method || '-')}</td>
                                 <td>${escapeHtml(p.reference || '-')}</td>
@@ -2673,8 +2687,8 @@ async function loadInvoiceDetail(invoiceId) {
                                 </td>
                             </tr>
                         `).join('');
-                    } catch (e) { return (inv.payments || []).map(() => '').join(''); }
-                })()}
+                } catch (e) { return (inv.payments || []).map(() => '').join(''); }
+            })()}
                 </tbody>
             </table>
         </div>` : ''}
@@ -2686,84 +2700,84 @@ async function loadInvoiceDetail(invoiceId) {
                     <th class="text-end">Qté</th>
                     <th class="text-end">PU</th>
                     ${(() => {
-                        // Vérifier si l'utilisateur est admin ou manager
-                        const isAdminOrManager = window.authManager && (window.authManager.isAdmin() || (window.authManager.userData && (window.authManager.userData.role === 'admin' || window.authManager.userData.role === 'manager')));
-                        return isAdminOrManager ? '<th class="text-end">Prix externe</th><th class="text-end">Bénéfice</th>' : '';
-                    })()}
+            // Vérifier si l'utilisateur est admin ou manager
+            const isAdminOrManager = window.authManager && (window.authManager.isAdmin() || (window.authManager.userData && (window.authManager.userData.role === 'admin' || window.authManager.userData.role === 'manager')));
+            return isAdminOrManager ? '<th class="text-end">Prix externe</th><th class="text-end">Bénéfice</th>' : '';
+        })()}
                     <th class="text-end">Total</th>
                 </tr></thead>
                 <tbody>
                 ${(() => {
-                    // Vérifier si l'utilisateur est admin ou manager
-                    const isAdminOrManager = window.authManager && (window.authManager.isAdmin() || (window.authManager.userData && (window.authManager.userData.role === 'admin' || window.authManager.userData.role === 'manager')));
-                    
-                    const rows = inv.items || [];
-                    const groups = new Map();
-                    rows.forEach(it => {
-                        // Inclure external_price dans la clé pour éviter les incohérences de regroupement
-                        const key = `${it.product_id}|${Number(it.price||0)}|${Number(it.external_price||0)}`;
-                        const baseName = (it.product_name || '').replace(/\s*\(IMEI:.*\)$/i, '');
-                        if (!groups.has(key)) {
-                            groups.set(key, { 
-                                name: baseName, 
-                                product_id: it.product_id, 
-                                price: Number(it.price||0), 
-                                qty: 0, 
-                                total: 0, 
-                                imeis: [],
-                                external_price: it.external_price || null,
-                                external_profit: 0
-                            });
-                        }
-                        const g = groups.get(key);
-                        g.qty += Number(it.quantity||0);
-                        g.total += Number(it.total||0);
-                        // Agréger le bénéfice externe (on le recalculera à la fin pour être sûr)
-                        if (it.external_profit !== null && it.external_profit !== undefined) {
-                            g.external_profit += Number(it.external_profit || 0);
-                        }
-                        // Fallback: parse inline IMEI from product_name when notes meta not present
-                        try {
-                            const m = String(it.product_name || '').match(/\(IMEI:\s*([^\)]+)\)/i);
-                            if (m && m[1]) {
-                                const imei = String(m[1]).trim();
-                                if (imei && !(g.imeis||[]).includes(imei)) g.imeis.push(imei);
-                            }
-                        } catch(e) {}
-                    });
-                    // Attach IMEIs from notes meta (takes priority)
-                    groups.forEach(g => {
-                        const list = serialsMap.get(String(g.product_id)) || [];
-                        if (list.length) {
-                            g.imeis = list;
-                            g.qty = list.length; // align qty to count of IMEIs
-                            g.total = g.qty * g.price;
-                        } else if ((g.imeis||[]).length) {
-                            g.qty = g.imeis.length;
-                            g.total = g.qty * g.price;
-                        }
-                        
-                        // RECALCULER le bénéfice externe pour le groupe afin d'éviter toute incohérence
-                        // Bénéfice = Total - (Prix Externe * Quantité)
-                        if (g.external_price !== null && g.external_price !== undefined && g.external_price > 0) {
-                            g.external_profit = g.total - (Number(g.external_price) * g.qty);
-                        } else {
-                            g.external_profit = null;
-                        }
+            // Vérifier si l'utilisateur est admin ou manager
+            const isAdminOrManager = window.authManager && (window.authManager.isAdmin() || (window.authManager.userData && (window.authManager.userData.role === 'admin' || window.authManager.userData.role === 'manager')));
 
-                        try {
-                            const q = quoteQtyByProductId.get(Number(g.product_id));
-                            if (typeof q === 'number') {
-                                g.quote_qty = q;
-                            }
-                        } catch(e){}
+            const rows = inv.items || [];
+            const groups = new Map();
+            rows.forEach(it => {
+                // Inclure external_price dans la clé pour éviter les incohérences de regroupement
+                const key = `${it.product_id}|${Number(it.price || 0)}|${Number(it.external_price || 0)}`;
+                const baseName = (it.product_name || '').replace(/\s*\(IMEI:.*\)$/i, '');
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        name: baseName,
+                        product_id: it.product_id,
+                        price: Number(it.price || 0),
+                        qty: 0,
+                        total: 0,
+                        imeis: [],
+                        external_price: it.external_price || null,
+                        external_profit: 0
                     });
-                    return Array.from(groups.values()).map(g => `
+                }
+                const g = groups.get(key);
+                g.qty += Number(it.quantity || 0);
+                g.total += Number(it.total || 0);
+                // Agréger le bénéfice externe (on le recalculera à la fin pour être sûr)
+                if (it.external_profit !== null && it.external_profit !== undefined) {
+                    g.external_profit += Number(it.external_profit || 0);
+                }
+                // Fallback: parse inline IMEI from product_name when notes meta not present
+                try {
+                    const m = String(it.product_name || '').match(/\(IMEI:\s*([^\)]+)\)/i);
+                    if (m && m[1]) {
+                        const imei = String(m[1]).trim();
+                        if (imei && !(g.imeis || []).includes(imei)) g.imeis.push(imei);
+                    }
+                } catch (e) { }
+            });
+            // Attach IMEIs from notes meta (takes priority)
+            groups.forEach(g => {
+                const list = serialsMap.get(String(g.product_id)) || [];
+                if (list.length) {
+                    g.imeis = list;
+                    g.qty = list.length; // align qty to count of IMEIs
+                    g.total = g.qty * g.price;
+                } else if ((g.imeis || []).length) {
+                    g.qty = g.imeis.length;
+                    g.total = g.qty * g.price;
+                }
+
+                // RECALCULER le bénéfice externe pour le groupe afin d'éviter toute incohérence
+                // Bénéfice = Total - (Prix Externe * Quantité)
+                if (g.external_price !== null && g.external_price !== undefined && g.external_price > 0) {
+                    g.external_profit = g.total - (Number(g.external_price) * g.qty);
+                } else {
+                    g.external_profit = null;
+                }
+
+                try {
+                    const q = quoteQtyByProductId.get(Number(g.product_id));
+                    if (typeof q === 'number') {
+                        g.quote_qty = q;
+                    }
+                } catch (e) { }
+            });
+            return Array.from(groups.values()).map(g => `
                         <tr>
                             <td>
                                 <strong>${escapeHtml(g.name)}</strong>
                                 ${g.imeis && g.imeis.length ? `<div class=\"text-muted small mt-1\">${g.imeis.map(escapeHtml).join('<br/>')}</div>` : ''}
-                                ${(() => { try { const p = (products||[]).find(pp => Number(pp.product_id) === Number(g.product_id)); return (p && p.description) ? `<div class=\"text-muted small mt-1\" style=\"text-align:justify\">${escapeHtml(p.description)}</div>` : ''; } catch(e){ return ''; } })()}
+                                ${(() => { try { const p = (products || []).find(pp => Number(pp.product_id) === Number(g.product_id)); return (p && p.description) ? `<div class=\"text-muted small mt-1\" style=\"text-align:justify\">${escapeHtml(p.description)}</div>` : ''; } catch (e) { return ''; } })()}
                             </td>
                             <td class=\"text-end\">${g.qty}${(typeof g.quote_qty === 'number') ? `<div class=\"text-muted small\">Qté devis: ${g.quote_qty}</div>` : ''}</td>
                             <td class=\"text-end\">${formatCurrency(g.price)}</td>
@@ -2774,7 +2788,7 @@ async function loadInvoiceDetail(invoiceId) {
                             <td class=\"text-end\">${formatCurrency(g.total)}</td>
                         </tr>
                     `).join('');
-                })()}
+        })()}
                 </tbody>
             </table>
         </div>
@@ -2784,16 +2798,16 @@ async function loadInvoiceDetail(invoiceId) {
             <div class="fs-5"><strong>Total:</strong> ${formatCurrency(inv.total || 0)}</div>
             
             ${(() => {
-                const isAdminOrManager = window.authManager && (window.authManager.isAdmin() || (window.authManager.userData && (window.authManager.userData.role === 'admin' || window.authManager.userData.role === 'manager')));
-                if (isAdminOrManager && inv.total_external_profit !== undefined && inv.total_external_profit !== null) {
-                    return `
+            const isAdminOrManager = window.authManager && (window.authManager.isAdmin() || (window.authManager.userData && (window.authManager.userData.role === 'admin' || window.authManager.userData.role === 'manager')));
+            if (isAdminOrManager && inv.total_external_profit !== undefined && inv.total_external_profit !== null) {
+                return `
                         <div class="mt-2 pt-2 border-top">
                             <div class="fs-6"><strong>Bénéfice externe total:</strong> <span class="${Number(inv.total_external_profit) >= 0 ? 'text-success' : 'text-danger'}">${formatCurrency(inv.total_external_profit)}</span></div>
                         </div>
                     `;
-                }
-                return '';
-            })()}
+            }
+            return '';
+        })()}
         </div>
     `;
     const modalEl = document.getElementById('invoiceDetailModal');
@@ -2820,25 +2834,25 @@ async function preloadInvoiceIntoForm(invoiceId) {
     // Charger les produits si pas encore chargés
     if (!products || products.length === 0) {
         try {
-            const { data } = await axios.get('/api/products');
+            const { data } = await axios.get('/api/products/');
             products = data.items || data || [];
-        } catch(e) {
+        } catch (e) {
             console.warn('Erreur chargement produits:', e);
         }
     }
     const { data: inv } = await axios.get(`/api/invoices/${invoiceId}`);
     openInvoiceModal();
-    
+
     // Attendre que le modal soit complètement affiché avant de remplir les champs
     await new Promise(resolve => setTimeout(resolve, 150));
-    
+
     const titleEl = document.getElementById('invoiceModalTitle');
     const idEl = document.getElementById('invoiceId');
     const numberEl = document.getElementById('invoiceNumber');
     const dateEl = document.getElementById('invoiceDate');
     const dueDateEl = document.getElementById('dueDate');
     const clientSel = document.getElementById('clientSelect');
-    
+
     if (titleEl) titleEl.innerHTML = '<i class="bi bi-pencil me-2"></i>Modifier la Facture';
     if (idEl) idEl.value = inv.invoice_id;
     if (numberEl) numberEl.value = inv.invoice_number;
@@ -2849,7 +2863,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
         const c = (clients || []).find(x => Number(x.client_id) === Number(inv.client_id));
         const input = document.getElementById('clientSearch');
         if (input) input.value = c ? (c.name || '') : (inv.client_name || '');
-    } catch(e) {}
+    } catch (e) { }
     const showTaxSwitch = document.getElementById('showTaxSwitch');
     const taxRateInput = document.getElementById('taxRateInput');
     if (showTaxSwitch) showTaxSwitch.checked = !!inv.show_tax;
@@ -2864,25 +2878,25 @@ async function preloadInvoiceIntoForm(invoiceId) {
     if (showSectionTotalsSwitch) {
         showSectionTotalsSwitch.checked = inv.show_section_totals !== false;
     }
-    
+
     // Afficher les informations de paiement existants
     const totalAmount = Number(inv.total || inv.total_amount || 0);
     const paidAmount = Number(inv.paid_amount || inv.paid || 0);
     const remainingAmount = Math.max(0, totalAmount - paidAmount);
     const isFullyPaid = String(inv.status).toUpperCase() === 'PAID' || remainingAmount <= 0;
-    
+
     // Afficher le résumé des paiements s'il y a des paiements existants ou si c'est payé
     if (paidAmount > 0 || isFullyPaid) {
         const paymentInfo = document.getElementById('existingPaymentInfo');
         const paymentSummary = document.getElementById('paymentStatusSummary');
-        
+
         if (paymentInfo && paymentSummary) {
             paymentSummary.innerHTML = `
                 <div><strong>Déjà payé:</strong> ${formatCurrency(paidAmount)}</div>
                 <div><strong>Restant:</strong> ${formatCurrency(remainingAmount)}</div>
             `;
             paymentInfo.style.display = 'block';
-            
+
             // Changer la couleur si entièrement payé
             if (isFullyPaid) {
                 paymentInfo.className = 'alert alert-success py-2 mb-3';
@@ -2896,7 +2910,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
         const paymentInfo = document.getElementById('existingPaymentInfo');
         if (paymentInfo) paymentInfo.style.display = 'none';
     }
-    
+
     // Extraire les métadonnées IMEI des notes pour restaurer les variantes
     let serialsMap = new Map();
     try {
@@ -2909,16 +2923,16 @@ async function preloadInvoiceIntoForm(invoiceId) {
                 (e.imeis || []).forEach(im => serialsMap.get(pid).push(im));
             });
         }
-    } catch(e) {
+    } catch (e) {
         console.warn("Erreur lors de l'extraction des métadonnées IMEI:", e);
     }
-    
+
     // Reconstituer les items EN PRÉSERVANT L'ORDRE ORIGINAL
     // On parcourt les items dans l'ordre et on groupe les produits identiques à leur première occurrence
     invoiceItems = [];
     const processedProductIds = new Set();
     const productItemsMap = new Map(); // product_id -> array of raw items
-    
+
     // D'abord, grouper les items par product_id pour pouvoir fusionner les IMEI
     (inv.items || []).forEach(it => {
         const key = String(it.product_id || '');
@@ -2927,12 +2941,12 @@ async function preloadInvoiceIntoForm(invoiceId) {
             productItemsMap.get(key).push(it);
         }
     });
-    
+
     // Maintenant parcourir dans l'ordre original
     (inv.items || []).forEach(it => {
         const pname = String(it.product_name || '');
         const key = String(it.product_id || '');
-        
+
         // Détecter les sections: product_id null et nom commençant par [SECTION]
         if (!key && pname.startsWith('[SECTION]')) {
             const title = pname.replace(/^\[SECTION\]\s*/, '').trim();
@@ -2951,7 +2965,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
             });
             return;
         }
-        
+
         // Item custom sans product_id (service personnalisé, pas une section)
         if (!key) {
             invoiceItems.push({
@@ -2969,16 +2983,16 @@ async function preloadInvoiceIntoForm(invoiceId) {
             });
             return;
         }
-        
+
         // Produit normal: ne traiter qu'à la première occurrence
         if (processedProductIds.has(key)) return;
         processedProductIds.add(key);
-        
+
         const groupItems = productItemsMap.get(key) || [it];
         const imeiList = serialsMap.get(key) || [];
         const totalQuantity = groupItems.reduce((sum, x) => sum + Number(x.quantity || 0), 0);
         const totalAmount = groupItems.reduce((sum, x) => sum + Number(x.total || 0), 0);
-        
+
         // Récupérer le prix externe et bénéfice du premier item du groupe (devrait être le même pour tous)
         const firstItem = groupItems[0];
         // Agréger le bénéfice externe si plusieurs items ont le même product_id
@@ -2998,7 +3012,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
             external_profit: totalExternalProfit !== 0 ? totalExternalProfit : null
         });
     });
-    
+
     // Fallback: si pas de métadonnées IMEI, essayer de parser depuis les noms de produits
     if (serialsMap.size === 0) {
         invoiceItems.forEach(item => {
@@ -3015,22 +3029,22 @@ async function preloadInvoiceIntoForm(invoiceId) {
                                 imeis.push(imei);
                             }
                         }
-                    } catch(e) {}
-                    
+                    } catch (e) { }
+
                     // Ou utiliser variant_imei si disponible
                     if (it.variant_imei && !imeis.includes(it.variant_imei)) {
                         imeis.push(it.variant_imei);
                     }
                 }
             });
-            
+
             if (imeis.length > 0) {
                 item.scannedImeis = imeis;
                 item.quantity = imeis.length;
             }
         });
     }
-    
+
     // Charger les quantités d'origine du devis
     quoteQtyByProductId = new Map();
     try {
@@ -3043,7 +3057,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
                 if (!Number.isNaN(pid)) quoteQtyByProductId.set(pid, qty);
             });
         }
-    } catch(e){}
+    } catch (e) { }
     if (!quoteQtyByProductId.size && inv.quotation_id) {
         try {
             const { data: q } = await axios.get(`/api/quotations/${inv.quotation_id}`);
@@ -3054,18 +3068,18 @@ async function preloadInvoiceIntoForm(invoiceId) {
                     quoteQtyByProductId.set(pid, (quoteQtyByProductId.get(pid) || 0) + qty);
                 }
             });
-        } catch(e) {}
+        } catch (e) { }
     }
-    
+
     updateInvoiceItemsDisplay();
     calculateTotals();
-    
+
     // Définir le type de facture et charger les produits échangés si c'est une facture d'échange
     const invoiceTypeSelect = document.getElementById('invoiceType');
     if (invoiceTypeSelect && inv.invoice_type) {
         invoiceTypeSelect.value = inv.invoice_type;
     }
-    
+
     // Charger les produits échangés
     if (inv.invoice_type === 'exchange' && inv.exchange_items && Array.isArray(inv.exchange_items)) {
         exchangeItems = inv.exchange_items.map((exItem, index) => ({
@@ -3084,24 +3098,24 @@ async function preloadInvoiceIntoForm(invoiceId) {
         exchangeItems = [];
         renderExchangeItems();
     }
-    
+
     // Appeler toggleInvoiceType pour afficher/masquer les sections appropriées
     toggleInvoiceType();
-    
+
     // Préselectionner la méthode de paiement si disponible
     try {
         const pmSel = document.getElementById('invoicePaymentMethod');
         if (pmSel && inv.payment_method) pmSel.value = inv.payment_method;
-    } catch (e) {}
-    
+    } catch (e) { }
+
     // Charger les données de garantie
     const warrantySwitch = document.getElementById('hasWarrantySwitch');
     const warrantyOptions = document.getElementById('warrantyOptions');
     const warrantyInfo = document.getElementById('warrantyInfo');
-    
+
     if (warrantySwitch) {
         warrantySwitch.checked = !!inv.has_warranty;
-        
+
         // Afficher/masquer les options de garantie
         if (warrantyOptions) {
             warrantyOptions.style.display = inv.has_warranty ? 'block' : 'none';
@@ -3109,7 +3123,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
         if (warrantyInfo) {
             warrantyInfo.style.display = inv.has_warranty ? 'block' : 'none';
         }
-        
+
         // Sélectionner la durée de garantie appropriée
         if (inv.has_warranty && inv.warranty_duration) {
             const durationRadio = document.querySelector(`input[name="warrantyDuration"][value="${inv.warranty_duration}"]`);
@@ -3117,7 +3131,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
                 durationRadio.checked = true;
             }
         }
-        
+
         // Afficher les dates de garantie si disponibles
         if (inv.has_warranty && warrantyInfo) {
             let warrantyInfoText = '';
@@ -3128,7 +3142,7 @@ async function preloadInvoiceIntoForm(invoiceId) {
                 warrantyInfoText += `<strong>Fin:</strong> ${formatDate(inv.warranty_end_date)}`;
             }
             if (warrantyInfoText) {
-                const warrantyDatesDiv = warrantyInfo.querySelector('.warranty-dates') || 
+                const warrantyDatesDiv = warrantyInfo.querySelector('.warranty-dates') ||
                     (() => {
                         const div = document.createElement('div');
                         div.className = 'warranty-dates small text-muted mt-2';
@@ -3144,13 +3158,13 @@ async function preloadInvoiceIntoForm(invoiceId) {
 async function duplicateInvoice(invoiceId) {
     try {
         console.log('[DuplicateInvoice] Début duplication facture:', invoiceId);
-        
+
         // Récupérer les données de la facture originale
         const response = await axios.get(`/api/invoices/${invoiceId}`);
         const data = response.data;
-        
+
         console.log('[DuplicateInvoice] Données récupérées:', data);
-        
+
         // Ouvrir le modal manuellement sans passer par openInvoiceModal qui réinitialise tout
         const modalEl = document.getElementById('invoiceModal');
         if (!modalEl) {
@@ -3158,28 +3172,28 @@ async function duplicateInvoice(invoiceId) {
             showError('Erreur: formulaire de facture introuvable');
             return;
         }
-        
+
         // Charger les produits si nécessaire
-        try { if (!Array.isArray(products) || products.length === 0) { loadProducts().catch(()=>{}); } } catch(e) {}
-        
+        try { if (!Array.isArray(products) || products.length === 0) { loadProducts().catch(() => { }); } } catch (e) { }
+
         // Reset le formulaire d'abord
         const formEl = document.getElementById('invoiceForm');
         if (formEl) formEl.reset();
-        
+
         // Titre du modal
         const titleEl = document.getElementById('invoiceModalTitle');
         if (titleEl) titleEl.innerHTML = '<i class="bi bi-copy me-2"></i>Dupliquer la Facture';
-        
+
         // Ne pas renseigner l'ID pour créer une nouvelle facture
         const idEl = document.getElementById('invoiceId');
         if (idEl) idEl.value = '';
-        
+
         // Dates
         const dateEl = document.getElementById('invoiceDate');
         const dueDateEl = document.getElementById('invoiceDueDate') || document.getElementById('dueDate');
         if (dateEl) dateEl.value = new Date().toISOString().split('T')[0];
-        if (dueDateEl) dueDateEl.value = new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0];
-        
+        if (dueDateEl) dueDateEl.value = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
         // Numéro de facture - récupérer le prochain
         const numberEl = document.getElementById('invoiceNumber');
         if (numberEl) {
@@ -3194,7 +3208,7 @@ async function duplicateInvoice(invoiceId) {
                 numberEl.placeholder = 'Sera généré automatiquement';
             });
         }
-        
+
         // Renseigner le client
         const clientHidden = document.getElementById('clientSelect');
         const clientInput = document.getElementById('clientSearch');
@@ -3206,25 +3220,25 @@ async function duplicateInvoice(invoiceId) {
             clientInput.value = data.client_name;
             console.log('[DuplicateInvoice] Client name défini:', data.client_name);
         }
-        
+
         // Notes
         const notesEl = document.getElementById('invoiceNotes');
         if (notesEl) notesEl.value = data.notes || '';
-        
+
         // TVA
         const taxInput = document.getElementById('taxRateInput');
         if (taxInput) taxInput.value = Number(data.tax_rate || 18);
         const showTaxSwitch = document.getElementById('showTaxSwitch');
         if (showTaxSwitch) showTaxSwitch.checked = data.show_tax !== false;
-        
+
         // Méthode de paiement
         const pmSel = document.getElementById('invoicePaymentMethod');
         if (pmSel && data.payment_method) pmSel.value = data.payment_method;
-        
+
         // Copier les articles comme lignes personnalisées
         const items = data.items || [];
         console.log('[DuplicateInvoice] Articles à copier:', items);
-        
+
         invoiceItems = items.map((it, idx) => {
             return {
                 id: Date.now() + idx + Math.random(),
@@ -3237,17 +3251,17 @@ async function duplicateInvoice(invoiceId) {
                 is_custom: true
             };
         });
-        
+
         console.log('[DuplicateInvoice] invoiceItems après copie:', invoiceItems);
-        
+
         // Afficher les articles
         updateInvoiceItemsDisplay();
         calculateTotals();
-        
+
         // Ouvrir le modal
         const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         modal.show();
-        
+
         showSuccess('Formulaire pré-rempli avec les données de la facture.');
     } catch (error) {
         console.error('Erreur lors de la duplication:', error);
@@ -3267,13 +3281,13 @@ async function deleteInvoice(invoiceId) {
             invoices = Array.isArray(invoices) ? invoices.filter(inv => Number(inv.invoice_id) !== Number(invoiceId)) : [];
             filteredInvoices = Array.isArray(filteredInvoices) ? filteredInvoices.filter(inv => Number(inv.invoice_id) !== Number(invoiceId)) : [];
             displayInvoices();
-        } catch (e) {}
+        } catch (e) { }
 
         await loadInvoices();
         await loadStats();
         await loadProducts(); // refresh variants availability after deletion restore
         showSuccess('Facture supprimée avec succès');
-        
+
     } catch (error) {
         console.error('Erreur lors de la suppression:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la suppression de la facture');
@@ -3318,10 +3332,10 @@ async function savePayment() {
                 const invId = Number(document.getElementById('paymentInvoiceId').value || 0);
                 if (invId) await loadInvoiceDetail(invId);
             }
-        } catch(e) {}
-        
+        } catch (e) { }
+
         showSuccess('Paiement enregistré avec succès');
-        
+
     } catch (error) {
         console.error('Erreur lors de l\'enregistrement du paiement:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de l\'enregistrement du paiement');
@@ -3333,48 +3347,48 @@ function updatePaymentNowMaxAmount() {
     const amountInput = document.getElementById('paymentNowAmount');
     const maxAmountSpan = document.getElementById('maxPaymentAmount');
     const paymentSwitch = document.getElementById('paymentNowSwitch');
-    
+
     // Ne pas traiter si le switch n'est pas activé
     if (!paymentSwitch || !paymentSwitch.checked || !amountInput) return;
-    
+
     const totalAmount = Math.round(parseFloat(document.getElementById('invoiceForm').dataset.total || '0'));
     const invoiceId = document.getElementById('invoiceId').value;
-    
+
     if (invoiceId) {
         // En édition : utiliser le montant restant depuis les infos affichées
         const paymentInfo = document.getElementById('existingPaymentInfo');
         if (paymentInfo && paymentInfo.style.display !== 'none') {
-                    const paymentSummary = document.getElementById('paymentStatusSummary');
-        if (paymentSummary) {
-                        // Extraire le montant restant en cherchant tous les chiffres (y compris les espaces)
-                        const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*([\d\s,\.]+)\s*(?:FCFA|€|\$)?/i);
-                        if (remainingMatch) {
-                            // Nettoyer le montant puis arrondir à l'entier le plus proche
-                            const cleanAmount = remainingMatch[1].replace(/\s/g, '').replace(',', '.');
-                            const remainingAmount = Math.round(parseFloat(cleanAmount));
-                            
-                            if (!isNaN(remainingAmount)) {
-                                // Ne mettre à jour que si le montant actuel dépasse le maximum autorisé
-                                const currentAmount = Math.round(parseFloat(amountInput.value || '0'));
-                                if (currentAmount > remainingAmount) {
-                                    amountInput.value = remainingAmount.toString();
-                                }
-                                
-                                amountInput.max = remainingAmount.toString();
-                                if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(remainingAmount);
-                                return;
-                            }
+            const paymentSummary = document.getElementById('paymentStatusSummary');
+            if (paymentSummary) {
+                // Extraire le montant restant en cherchant tous les chiffres (y compris les espaces)
+                const remainingMatch = paymentSummary.innerHTML.match(/Restant:[^\d]*([\d\s,\.]+)\s*(?:FCFA|€|\$)?/i);
+                if (remainingMatch) {
+                    // Nettoyer le montant puis arrondir à l'entier le plus proche
+                    const cleanAmount = remainingMatch[1].replace(/\s/g, '').replace(',', '.');
+                    const remainingAmount = Math.round(parseFloat(cleanAmount));
+
+                    if (!isNaN(remainingAmount)) {
+                        // Ne mettre à jour que si le montant actuel dépasse le maximum autorisé
+                        const currentAmount = Math.round(parseFloat(amountInput.value || '0'));
+                        if (currentAmount > remainingAmount) {
+                            amountInput.value = remainingAmount.toString();
                         }
+
+                        amountInput.max = remainingAmount.toString();
+                        if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(remainingAmount);
+                        return;
                     }
+                }
+            }
         }
     }
-    
+
     // Par défaut (nouvelle facture ou pas de paiements existants)
     const currentAmount = parseFloat(amountInput.value || '0');
     if (currentAmount > totalAmount) {
         amountInput.value = totalAmount.toString();
     }
-    
+
     amountInput.max = totalAmount.toString();
     if (maxAmountSpan) maxAmountSpan.textContent = formatCurrency(totalAmount);
 }
@@ -3386,7 +3400,7 @@ async function sendInvoiceWhatsApp(invoiceId) {
         // Récupérer les infos de la facture pour avoir le numéro du client
         const { data: invoice } = await axios.get(`/api/invoices/${invoiceId}`);
         let phone = invoice.client?.phone || '';
-        
+
         // Vérifier si le numéro est renseigné
         if (!phone || phone.trim() === '') {
             phone = prompt('Le numéro de téléphone du client n\'est pas renseigné.\nVeuillez entrer le numéro WhatsApp (ex: +221771234567):');
@@ -3395,20 +3409,20 @@ async function sendInvoiceWhatsApp(invoiceId) {
                 return;
             }
         }
-        
+
         // Normaliser le numéro (enlever espaces, tirets)
         phone = phone.replace(/[\s\-\.]/g, '').trim();
         if (!phone.startsWith('+')) {
             phone = '+221' + phone.replace(/^0/, ''); // Défaut Sénégal
         }
-        
+
         // Appeler l'API n8n pour envoyer
         showSuccess('Envoi en cours via WhatsApp...');
-        const response = await axios.post('/api/invoices/send-whatsapp', {
+        const response = await axios.post('/api/invoices/send-whatsapp/', {
             invoice_id: invoiceId,
             phone: phone
         });
-        
+
         if (response.data?.success) {
             showSuccess('Facture envoyée par WhatsApp avec succès!');
         } else {
@@ -3427,7 +3441,7 @@ async function sendInvoiceEmail(invoiceId) {
         // Récupérer les infos de la facture pour avoir l'email du client
         const { data: invoice } = await axios.get(`/api/invoices/${invoiceId}`);
         let email = invoice.client?.email || '';
-        
+
         // Vérifier si l'email est renseigné
         if (!email || email.trim() === '') {
             email = prompt('L\'email du client n\'est pas renseigné.\nVeuillez entrer l\'adresse email:');
@@ -3436,20 +3450,20 @@ async function sendInvoiceEmail(invoiceId) {
                 return;
             }
         }
-        
+
         // Validation basique de l'email
         if (!email.includes('@') || !email.includes('.')) {
             showError('Adresse email invalide');
             return;
         }
-        
+
         // Appeler l'API n8n pour envoyer
         showSuccess('Envoi en cours par email...');
-        const response = await axios.post('/api/invoices/send-email', {
+        const response = await axios.post('/api/invoices/send-email/', {
             invoice_id: invoiceId,
             email: email.trim()
         });
-        
+
         if (response.data?.success) {
             showSuccess('Facture envoyée par email avec succès!');
         } else {
@@ -3487,7 +3501,7 @@ async function populatePaymentMethodSelects(selectFirst = false) {
             nowSel.innerHTML = mapToOptions(methods, false);
             if (selectFirst && methods.length) nowSel.value = methods[0];
             // Forcer un change pour UI réactive
-            try { nowSel.dispatchEvent(new Event('change')); } catch(e) {}
+            try { nowSel.dispatchEvent(new Event('change')); } catch (e) { }
         }
 
         // Modal paiement
@@ -3511,18 +3525,18 @@ function toggleInvoiceType() {
     const clientSection = document.querySelector('#clientSearch')?.closest('.col-md-6');
     const clientSearchInput = document.getElementById('clientSearch');
     const clientSelectHidden = document.getElementById('clientSelect');
-    
+
     if (!typeSelect) return;
-    
+
     const invoiceType = typeSelect.value;
     const isExchange = invoiceType === 'exchange';
     const isFlashSale = invoiceType === 'flash_sale';
-    
+
     // Gérer la section d'échange
     if (exchangeSection) {
         exchangeSection.style.display = isExchange ? 'block' : 'none';
     }
-    
+
     // Gérer le titre des articles
     if (itemsTitle) {
         const h6 = itemsTitle.querySelector('h6');
@@ -3530,7 +3544,7 @@ function toggleInvoiceType() {
             h6.textContent = isExchange ? 'Articles (produits donnés au client)' : 'Articles';
         }
     }
-    
+
     // Gérer le champ client pour les ventes flash
     if (clientSection) {
         if (isFlashSale) {
@@ -3590,17 +3604,17 @@ function removeExchangeItem(itemId) {
 function renderExchangeItems() {
     const tbody = document.getElementById('exchangeItemsBody');
     if (!tbody) return;
-    
+
     if (exchangeItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Aucun produit échangé</td></tr>';
         return;
     }
-    
+
     tbody.innerHTML = exchangeItems.map(item => {
-        const productOptions = products.map(p => 
+        const productOptions = products.map(p =>
             `<option value="${p.product_id}" ${item.product_id === p.product_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
         ).join('');
-        
+
         // Afficher un champ texte pour les articles personnalisés, sinon un champ de recherche
         const productCell = item.is_custom ? `
             <input type="text" class="form-control form-control-sm" 
@@ -3618,7 +3632,7 @@ function renderExchangeItems() {
                 </div>
             </div>
         `;
-        
+
         // Champ prix de reprise pour tous les produits échangés
         const priceCell = `
             <input type="number" class="form-control form-control-sm" 
@@ -3627,7 +3641,7 @@ function renderExchangeItems() {
                    value="${item.price || ''}"
                    onchange="updateExchangeItem(${item.id}, 'price', parseFloat(this.value) || 0)">
         `;
-        
+
         return `
             <tr data-item-id="${item.id}">
                 <td>
@@ -3666,7 +3680,7 @@ function renderExchangeItems() {
 function updateExchangeItem(itemId, field, value) {
     const item = exchangeItems.find(i => i.id === itemId);
     if (!item) return;
-    
+
     if (field === 'product_id') {
         item.product_id = value ? parseInt(value) : null;
         const product = products.find(p => p.product_id === parseInt(value));

@@ -3,10 +3,10 @@ let scanHistory = [];
 let cameraStream = null;
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     try { setupBarcodeInput(); } catch (e) { console.warn('setupBarcodeInput error:', e); }
-    loadScanHistory().catch(() => {});
-    
+    loadScanHistory().catch(() => { });
+
     // Définir la date actuelle pour les nouveaux scans
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -22,7 +22,7 @@ function setupBarcodeInput() {
     barcodeInput.focus();
 
     // Recherche automatique après saisie
-    barcodeInput.addEventListener('input', debounce(function() {
+    barcodeInput.addEventListener('input', debounce(function () {
         const value = (this && typeof this.value === 'string') ? this.value : '';
         const barcode = value.trim();
         if (barcode.length >= 3) {
@@ -31,7 +31,7 @@ function setupBarcodeInput() {
     }, 500));
 
     // Recherche sur Enter
-    barcodeInput.addEventListener('keypress', function(e) {
+    barcodeInput.addEventListener('keypress', function (e) {
         if (e.key === 'Enter') {
             e.preventDefault();
             searchBarcode();
@@ -43,7 +43,7 @@ function setupBarcodeInput() {
 async function searchBarcode() {
     const barcodeInput = document.getElementById('barcodeInput');
     const barcode = barcodeInput.value.trim();
-    
+
     if (!barcode) {
         showError('Veuillez saisir un code-barres');
         return;
@@ -51,8 +51,8 @@ async function searchBarcode() {
 
     try {
         showSearchLoading();
-        
-        const response = await fetch(`/api/products/scan/${encodeURIComponent(barcode)}`, {
+
+        const response = await fetch(`/api/products/scan/${encodeURIComponent(barcode)}/`, {
             credentials: 'include'
         });
 
@@ -69,11 +69,11 @@ async function searchBarcode() {
         const normalized = normalizeScanResult(result);
         displaySearchResult(normalized, barcode);
         addToScanHistory(barcode, normalized);
-        
+
         // Vider l'input pour le prochain scan
         barcodeInput.value = '';
         barcodeInput.focus();
-        
+
     } catch (error) {
         console.error('Erreur lors de la recherche:', error);
         showError('Erreur lors de la recherche du code-barres');
@@ -97,7 +97,7 @@ function showSearchLoading() {
 // Afficher le résultat de la recherche
 function displaySearchResult(result, barcode) {
     const resultsDiv = document.getElementById('searchResults');
-    
+
     let html = `
         <div class="alert alert-success">
             <h6><i class="bi bi-check-circle me-2"></i>Produit trouvé !</h6>
@@ -171,7 +171,7 @@ function displaySearchResult(result, barcode) {
             </div>
         </div>
     `;
-    
+
     resultsDiv.innerHTML = html;
 }
 
@@ -217,20 +217,20 @@ async function addToScanHistory(barcode, result) {
         stock: result.variant ? (result.variant.is_sold ? 0 : 1) : (result.stock_quantity || 0),
         found: true
     };
-    
+
     scanHistory.unshift(scanEntry);
-    
+
     // Limiter l'historique à 50 entrées
     if (scanHistory.length > 50) {
         scanHistory = scanHistory.slice(0, 50);
     }
-    
+
     // Sauvegarder dans SQLite via API
     if (scanHistory.length > 0) {
         const latestScan = scanHistory[scanHistory.length - 1];
         await apiStorage.addScanHistory(latestScan);
     }
-    
+
     updateScanHistoryDisplay();
 }
 
@@ -298,7 +298,7 @@ function stopCamera() {
         cameraStream.getTracks().forEach(track => track.stop());
         cameraStream = null;
     }
-    
+
     document.getElementById('cameraContainer').style.display = 'none';
     document.getElementById('stopCameraBtn').style.display = 'none';
 }

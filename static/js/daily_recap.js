@@ -1,24 +1,24 @@
 // Récap Quotidien - Gestion de l'interface
 let currentRecapData = null;
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Initialiser la date d'aujourd'hui
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('recapDate').value = today;
-    
+
     // Charger automatiquement le récap d'aujourd'hui
     loadDailyRecap();
-    
+
     // Event listener pour le changement de date
     document.getElementById('recapDate').addEventListener('change', loadDailyRecap);
-    
+
     // Initialiser les dates du résumé de période par défaut sur aujourd'hui
     try {
         const periodStart = document.getElementById('periodStart');
         const periodEnd = document.getElementById('periodEnd');
         if (periodStart) periodStart.value = today;
         if (periodEnd) periodEnd.value = today;
-    } catch (e) {}
+    } catch (e) { }
 });
 
 async function loadDailyRecap() {
@@ -28,17 +28,17 @@ async function loadDailyRecap() {
             showError('Veuillez sélectionner une date');
             return;
         }
-        
+
         showLoading();
-        
+
         // Appel API pour récupérer les données
-        const response = await axios.get('/api/daily-recap/stats', {
+        const response = await axios.get('/api/daily-recap/stats/', {
             params: { target_date: selectedDate }
         });
-        
+
         const data = response.data;
         currentRecapData = data;
-        
+
         // Mettre à jour l'affichage
         updateDateDisplay(data.date_formatted);
         updateFinancialSummary(data.finances);
@@ -49,9 +49,10 @@ async function loadDailyRecap() {
         updateDebtsSection(data.debts || {});
         updateDashboardSection(data.dashboard || {});
         updateUserStats(data.user_stats || {});
-        
+        updateStockSummary();
+
         hideLoading();
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement du récap:', error);
         showError('Erreur lors du chargement du récap quotidien');
@@ -116,7 +117,7 @@ function updateDashboardSection(dashboard) {
             const list = Array.isArray(dashboard.top_products) ? dashboard.top_products : [];
             topProductsBody.innerHTML = list.length ? list.map(p => `
                 <tr>
-                    <td>${escapeHtml(p.name || '-') }</td>
+                    <td>${escapeHtml(p.name || '-')}</td>
                     <td>${formatCurrency(p.revenue || 0)}</td>
                 </tr>
             `).join('') : '<tr><td colspan="2" class="text-center text-muted">Aucune donnée</td></tr>';
@@ -179,7 +180,7 @@ async function loadPeriodSummary() {
             return;
         }
 
-        const resp = await axios.get('/api/daily-recap/period-summary', {
+        const resp = await axios.get('/api/daily-recap/period-summary/', {
             params: { start_date: start, end_date: end }
         });
         const summary = resp.data || {};
@@ -207,17 +208,17 @@ function updateDateDisplay(dateFormatted) {
 
 function updateFinancialSummary(finances) {
     if (!finances) return;
-    
+
     // Mise à jour de la vue caisse
     const paymentsEl = document.getElementById('paymentsReceived');
     if (paymentsEl) paymentsEl.textContent = formatCurrency(finances.payments_received || 0);
-    
+
     const bankEntriesEl = document.getElementById('bankEntries');
     if (bankEntriesEl) bankEntriesEl.textContent = formatCurrency(finances.bank_entries || 0);
-    
+
     const bankExitsEl = document.getElementById('bankExits');
     if (bankExitsEl) bankExitsEl.textContent = formatCurrency(finances.bank_exits || 0);
-    
+
     const balanceElement = document.getElementById('dailyBalance');
     if (balanceElement) {
         const balance = finances.daily_balance || 0;
@@ -236,7 +237,7 @@ function updateFinancialSummary(finances) {
             : (Number(finances.potential_revenue || 0) - Number(finances.daily_purchases_total || 0));
         netRevEl.textContent = formatCurrency(net);
     }
-    
+
     // Bénéfice externe (visible uniquement pour admin et manager)
     const isAdminOrManager = window.authManager && (window.authManager.isAdmin() || (window.authManager.userData && (window.authManager.userData.role === 'admin' || window.authManager.userData.role === 'manager')));
     const externalProfitEl = document.getElementById('externalProfit');
@@ -253,17 +254,17 @@ function updateFinancialSummary(finances) {
 
 function updateQuickStats(data) {
     if (!data) return;
-    
+
     // Statistiques rapides
     const invoicesEl = document.getElementById('invoicesCreated');
     if (invoicesEl) invoicesEl.textContent = (data.invoices?.created_count || 0);
-    
+
     const quotationsEl = document.getElementById('quotationsCreated');
     if (quotationsEl) quotationsEl.textContent = (data.quotations?.created_count || 0);
-    
+
     const stockEntriesEl = document.getElementById('stockEntries');
     if (stockEntriesEl) stockEntriesEl.textContent = (data.stock?.entries_count || 0);
-    
+
     const stockExitsEl = document.getElementById('stockExits');
     if (stockExitsEl) stockExitsEl.textContent = (data.stock?.exits_count || 0);
 }
@@ -271,13 +272,13 @@ function updateQuickStats(data) {
 function updateDetailedTables(data) {
     // Table des factures
     updateInvoicesTable(data.invoices.created_list);
-    
+
     // Table des paiements
     updatePaymentsTable(data.payments.list);
-    
+
     // Table des devis
     updateQuotationsTable(data.quotations.created_list);
-    
+
     // Tables des mouvements de stock
     updateStockEntriesTable(data.stock.entries_list);
     updateStockExitsTable(data.stock.exits_list);
@@ -322,12 +323,12 @@ function updateDailyPurchases(dp) {
 
 function updateInvoicesTable(invoices) {
     const tbody = document.getElementById('invoicesTable');
-    
+
     if (!invoices || invoices.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Aucune facture créée ce jour</td></tr>';
         return;
     }
-    
+
     tbody.innerHTML = invoices.map(invoice => `
         <tr>
             <td>${invoice.time}</td>
@@ -349,12 +350,12 @@ function updateInvoicesTable(invoices) {
 
 function updatePaymentsTable(payments) {
     const tbody = document.getElementById('paymentsTable');
-    
+
     if (!payments || payments.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Aucun paiement reçu ce jour</td></tr>';
         return;
     }
-    
+
     tbody.innerHTML = payments.map(payment => `
         <tr>
             <td>${payment.time}</td>
@@ -373,12 +374,12 @@ function updatePaymentsTable(payments) {
 
 function updateQuotationsTable(quotations) {
     const tbody = document.getElementById('quotationsTable');
-    
+
     if (!quotations || quotations.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Aucun devis créé ce jour</td></tr>';
         return;
     }
-    
+
     tbody.innerHTML = quotations.map(quotation => `
         <tr>
             <td>${quotation.time}</td>
@@ -400,12 +401,12 @@ function updateQuotationsTable(quotations) {
 
 function updateStockEntriesTable(entries) {
     const tbody = document.getElementById('stockEntriesTable');
-    
+
     if (!entries || entries.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Aucune entrée de stock ce jour</td></tr>';
         return;
     }
-    
+
     tbody.innerHTML = entries.map(entry => `
         <tr>
             <td>${entry.time}</td>
@@ -424,12 +425,12 @@ function updateStockEntriesTable(entries) {
 
 function updateStockExitsTable(exits) {
     const tbody = document.getElementById('stockExitsTable');
-    
+
     if (!exits || exits.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">Aucune sortie de stock ce jour</td></tr>';
         return;
     }
-    
+
     tbody.innerHTML = exits.map(exit => `
         <tr>
             <td>${exit.time}</td>
@@ -537,7 +538,7 @@ function showLoading() {
         'invoicesCreated', 'quotationsCreated', 'stockEntries', 'stockExits',
         'paymentsReceived', 'bankEntries', 'bankExits', 'dailyBalance'
     ];
-    
+
     elements.forEach(id => {
         const element = document.getElementById(id);
         if (element) {
@@ -582,7 +583,7 @@ function goToInvoiceFromRecap(invoiceId, invoiceNumber) {
         if (numVal) {
             sessionStorage.setItem('invoiceSearchQuery', numVal);
         }
-    } catch (e) {}
+    } catch (e) { }
     window.location.href = '/invoices';
 }
 
@@ -592,7 +593,7 @@ function goToQuotationFromRecap(quotationId, quotationNumber) {
         if (!val) return;
         // On utilisera une recherche côté page devis via le numéro
         sessionStorage.setItem('quotationSearchQuery', val);
-    } catch (e) {}
+    } catch (e) { }
     window.location.href = '/quotations';
 }
 
@@ -600,35 +601,35 @@ function goToQuotationFromRecap(quotationId, quotationNumber) {
 function updateUserStats(userStats) {
     try {
         if (!userStats || typeof userStats !== 'object') userStats = {};
-        
+
         // Nom d'utilisateur
         const usernameEl = document.getElementById('userStatsUsername');
         if (usernameEl) usernameEl.textContent = userStats.username ? `(${userStats.username})` : '';
-        
+
         // Factures
         const userInvoicesCount = document.getElementById('userInvoicesCount');
         const userInvoicesTotal = document.getElementById('userInvoicesTotal');
         if (userInvoicesCount) userInvoicesCount.textContent = userStats.invoices?.count || 0;
         if (userInvoicesTotal) userInvoicesTotal.textContent = formatCurrency(userStats.invoices?.total || 0);
-        
+
         // Devis
         const userQuotationsCount = document.getElementById('userQuotationsCount');
         const userQuotationsTotal = document.getElementById('userQuotationsTotal');
         if (userQuotationsCount) userQuotationsCount.textContent = userStats.quotations?.count || 0;
         if (userQuotationsTotal) userQuotationsTotal.textContent = formatCurrency(userStats.quotations?.total || 0);
-        
+
         // Paiements
         const userPaymentsTotal = document.getElementById('userPaymentsTotal');
         const userPaymentsCount = document.getElementById('userPaymentsCount');
         if (userPaymentsTotal) userPaymentsTotal.textContent = formatCurrency(userStats.payments?.total || 0);
         if (userPaymentsCount) userPaymentsCount.textContent = `${userStats.payments?.count || 0} paiements`;
-        
+
         // Dépenses
         const userPurchasesTotal = document.getElementById('userPurchasesTotal');
         const userPurchasesCount = document.getElementById('userPurchasesCount');
         if (userPurchasesTotal) userPurchasesTotal.textContent = formatCurrency(userStats.daily_purchases?.total || 0);
         if (userPurchasesCount) userPurchasesCount.textContent = `${userStats.daily_purchases?.count || 0} achats`;
-        
+
         // Solde net
         const userNetBalance = document.getElementById('userNetBalance');
         const userNetBalanceBox = document.getElementById('userNetBalanceBox');
@@ -648,7 +649,7 @@ function updateUserStats(userStats) {
                 userNetBalanceBox.classList.add('bg-light');
             }
         }
-        
+
         // Table des factures utilisateur
         const userInvoicesTable = document.getElementById('userInvoicesTable');
         if (userInvoicesTable) {
@@ -667,7 +668,7 @@ function updateUserStats(userStats) {
                 `).join('');
             }
         }
-        
+
         // Table des devis utilisateur
         const userQuotationsTable = document.getElementById('userQuotationsTable');
         if (userQuotationsTable) {
@@ -697,5 +698,25 @@ function getQuotationStatusBadgeClass(status) {
         case 'refusé': return 'bg-danger';
         case 'expiré': return 'bg-secondary';
         default: return 'bg-warning text-dark';
+    }
+}
+
+async function updateStockSummary() {
+    try {
+        const response = await axios.get('/api/reports/stock-summary/');
+        const data = response.data.summary;
+
+        const stockValueEl = document.getElementById('recapStockValue');
+        const stockProfitEl = document.getElementById('recapStockProfit');
+        const stockCostEl = document.getElementById('recapStockCost');
+        const stockMarginEl = document.getElementById('recapStockMargin');
+
+        if (stockValueEl) stockValueEl.textContent = formatCurrency(data.total_stock_value || 0);
+        if (stockProfitEl) stockProfitEl.textContent = formatCurrency(data.total_potential_profit || 0);
+        if (stockCostEl) stockCostEl.textContent = formatCurrency(data.total_purchase_cost || 0);
+        if (stockMarginEl) stockMarginEl.textContent = (data.profit_margin_percent || 0).toFixed(2) + '%';
+    } catch (error) {
+        console.error('Erreur lors du chargement du récapitulatif de stock:', error);
+        // Ne pas afficher d'erreur pour ne pas perturber l'utilisateur
     }
 }

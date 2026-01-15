@@ -643,6 +643,48 @@
     </div>
 </div>
 
+<!-- Récapitulatif de Stock -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Récapitulatif de Stock</h5>
+                <a href="/stock-summary" class="btn btn-sm btn-light">
+                    <i class="bi bi-arrow-right me-1"></i>Voir le détail
+                </a>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="p-3 border rounded">
+                            <div class="small text-muted text-uppercase">Valeur du Stock</div>
+                            <div class="h5 mb-0 text-primary" id="recapStockValue">-</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="p-3 border rounded">
+                            <div class="small text-muted text-uppercase">Bénéfice Potentiel</div>
+                            <div class="h5 mb-0 text-success" id="recapStockProfit">-</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="p-3 border rounded">
+                            <div class="small text-muted text-uppercase">Coût d'Achat</div>
+                            <div class="h5 mb-0 text-info" id="recapStockCost">-</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6 mb-3">
+                        <div class="p-3 border rounded">
+                            <div class="small text-muted text-uppercase">Marge Bénéficiaire</div>
+                            <div class="h5 mb-0 text-warning" id="recapStockMargin">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Produits & Stock + Indicateurs avancés -->
 <div class="row mb-4">
     <!-- Produits & Stock -->

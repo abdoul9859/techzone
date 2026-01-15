@@ -6,7 +6,7 @@ let selectedCategoryId = null;
 let selectedCategoryName = '';
 
 // Initialisation
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', async function () {
     console.log('[settings.js] DOMContentLoaded - script loaded');
     // console.log('Settings - DOMContentLoaded, authManager:', window.authManager);
 
@@ -22,12 +22,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         // loadUsers(); // Chargement à la demande seulement
         loadSettings();
         // Ne pas charger les catégories ici, elles seront chargées à la demande
-        
+
         // Feature flag côté client pour activer/désactiver le fallback catégories/list (désactivé par défaut)
         if (typeof window.ENABLE_CATEGORY_LIST_FALLBACK === 'undefined') {
             window.ENABLE_CATEGORY_LIST_FALLBACK = false;
         }
-        
+
         // Ajouter des gestionnaires d'événements pour les onglets Bootstrap
         setupTabEventHandlers();
 
@@ -39,11 +39,11 @@ document.addEventListener('DOMContentLoaded', async function() {
             loadCategories();
         }
 
-// Exposer globalement pour compatibilité avec onclick inline du template
-if (typeof window !== 'undefined') {
-    window.loadProductConditions = loadProductConditions;
-    window.saveProductConditions = saveProductConditions;
-}
+        // Exposer globalement pour compatibilité avec onclick inline du template
+        if (typeof window !== 'undefined') {
+            window.loadProductConditions = loadProductConditions;
+            window.saveProductConditions = saveProductConditions;
+        }
     };
 
     // S'assurer que l'auth cookie est validée avant de charger et surtout avant de sauvegarder
@@ -62,11 +62,11 @@ if (typeof window !== 'undefined') {
 // Configurer les gestionnaires d'événements pour les onglets
 function setupTabEventHandlers() {
     // console.log('Configuration des gestionnaires d\'événements pour les onglets...');
-    
+
     // Gestionnaire pour l'onglet Catégories
     const categoriesTab = document.querySelector('a[href="#categories"]');
     // console.log('Élément catégories trouvé:', categoriesTab);
-    
+
     if (categoriesTab) {
         // Utiliser 'shown.bs.tab' pour les pills Bootstrap
         categoriesTab.addEventListener('shown.bs.tab', function (e) {
@@ -76,11 +76,11 @@ function setupTabEventHandlers() {
     } else {
         console.error('Élément onglet Catégories non trouvé !');
     }
-    
+
     // Gestionnaire pour l'onglet Utilisateurs
     const usersTab = document.querySelector('a[href="#users"]');
     // console.log('Élément utilisateurs trouvé:', usersTab);
-    
+
     if (usersTab) {
         usersTab.addEventListener('shown.bs.tab', function (e) {
             // console.log('Chargement des utilisateurs...');
@@ -102,7 +102,7 @@ async function loadSettings() {
     try {
         // Charger les paramètres depuis SQLite via API
         const settings = await apiStorage.getAppSettings();
-        
+
         // Appliquer les paramètres aux formulaires
         if (settings.general) {
             Object.keys(settings.general).forEach(key => {
@@ -112,7 +112,7 @@ async function loadSettings() {
                 }
             });
         }
-        
+
         if (settings.company) {
             Object.keys(settings.company).forEach(key => {
                 const element = document.getElementById(key);
@@ -121,7 +121,7 @@ async function loadSettings() {
                 }
             });
         }
-        
+
         if (settings.invoice) {
             Object.keys(settings.invoice).forEach(key => {
                 const element = document.getElementById(key);
@@ -166,7 +166,7 @@ async function loadSettings() {
                     preview.style.display = 'none';
                 }
             }
-        } catch(e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
 
         if (settings.stock) {
             Object.keys(settings.stock).forEach(key => {
@@ -180,7 +180,7 @@ async function loadSettings() {
                 }
             });
         }
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement des paramètres:', error);
     }
@@ -197,7 +197,7 @@ async function loadProductConditions() {
     select.disabled = true;
 
     try {
-        const resp = await axios.get('/api/products/settings/conditions');
+        const resp = await axios.get('/api/products/settings/conditions/');
         const data = resp.data || {};
         const options = Array.isArray(data.options) ? data.options : [];
         const def = data.default || '';
@@ -253,7 +253,7 @@ async function saveProductConditions() {
     }
 
     try {
-        await axios.put('/api/products/settings/conditions', {
+        await axios.put('/api/products/settings/conditions/', {
             options: options,
             default: def || null
         });
@@ -357,7 +357,7 @@ async function saveInvoiceSettings() {
 
         // Sauvegarder les méthodes de paiement via endpoint dédié (format JSON canonique)
         const methodsText = document.getElementById('invoicePaymentMethods').value || '';
-await apiRequest('/api/user-settings/invoice/payment-methods', {
+        await apiRequest('/api/user-settings/invoice/payment-methods/', {
             method: 'POST',
             data: { methods: methodsText }
         });
@@ -417,7 +417,7 @@ async function loadUsers() {
 
         // Appel API via utilitaire avec timeout pour éviter les chargements infinis
         const response = await safeLoadData(
-            () => axios.get('/api/auth/users'),
+            () => axios.get('/api/auth/users/'),
             {
                 timeout: 8000,
                 fallbackData: [],
@@ -425,19 +425,19 @@ async function loadUsers() {
             }
         );
         const data = response.data;
-        
+
         // Validation des données + filtrage des comptes techniques (ex: owner)
         if (Array.isArray(data)) {
             users = data.filter(u => u && u.username !== 'owner');
         } else {
             users = [];
         }
-        
+
         displayUsers();
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement des utilisateurs:', error);
-        
+
         // Afficher un message d'erreur approprié
         const tableBody = document.getElementById('usersTableBody');
         if (tableBody) {
@@ -583,14 +583,14 @@ async function saveUser() {
                 return;
             }
             const payload = { username, email, password, role };
-            const resp = await axios.post('/api/auth/register', payload, { withCredentials: true });
+            const resp = await axios.post('/api/auth/register/', payload, { withCredentials: true });
             if (!(resp && resp.status >= 200 && resp.status < 300)) throw new Error('Erreur création utilisateur');
             showSuccess('Utilisateur créé avec succès');
         } else {
             // Édition (partielle)
             const payload = { username, email, role };
             if (password) payload.password = password;
-            const resp = await axios.put(`/api/auth/users/${editingUserId}`, payload, { withCredentials: true });
+            const resp = await axios.put(`/api/auth/users/${editingUserId}/`, payload, { withCredentials: true });
             if (!(resp && resp.status >= 200 && resp.status < 300)) throw new Error('Erreur mise à jour utilisateur');
             showSuccess('Utilisateur mis à jour');
         }
@@ -640,7 +640,7 @@ async function toggleUserStatus(userId) {
         const u = users.find(x => String(x.user_id) === String(userId));
         if (!u) return;
         const target = !u.is_active;
-        await axios.put(`/api/auth/users/${userId}/status`, { is_active: target }, { withCredentials: true });
+        await axios.put(`/api/auth/users/${userId}/status/`, { is_active: target }, { withCredentials: true });
         await loadUsers();
         showSuccess(`Utilisateur ${target ? 'activé' : 'désactivé'} avec succès`);
     } catch (error) {
@@ -653,7 +653,7 @@ async function toggleUserStatus(userId) {
 async function deleteUser(userId) {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return;
     try {
-        await axios.delete(`/api/auth/users/${userId}`, { withCredentials: true });
+        await axios.delete(`/api/auth/users/${userId}/`, { withCredentials: true });
         await loadUsers();
         showSuccess('Utilisateur supprimé avec succès');
     } catch (error) {
@@ -672,16 +672,16 @@ async function createBackup() {
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Création...';
         }
         showInfo('Création de la sauvegarde en cours...');
-        
+
         // Appeler l'API pour créer une sauvegarde
-        const response = await axios.get('/api/backup/create', {
+        const response = await axios.get('/api/backup/create/', {
             responseType: 'blob'
         });
-        
+
         // Créer un lien de téléchargement
         const date = new Date().toISOString().split('T')[0];
         const filename = `techzone-backup-${date}.db`;
-        
+
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');
         link.href = url;
@@ -690,9 +690,9 @@ async function createBackup() {
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
-        
+
         showSuccess(`Sauvegarde créée: ${filename}`);
-        
+
     } catch (error) {
         console.error('Erreur lors de la sauvegarde:', error);
         showError('Erreur lors de la création de la sauvegarde');
@@ -725,20 +725,20 @@ async function restoreBackup() {
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Restauration...';
         }
         showInfo('Restauration en cours...');
-        
+
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
-        
+
         // Ne pas définir Content-Type manuellement, axios le gère automatiquement avec le boundary
-        const response = await axios.post('/api/backup/restore', formData);
-        
+        const response = await axios.post('/api/backup/restore/', formData);
+
         showSuccess('Sauvegarde restaurée avec succès. Rechargement de la page...');
-        
+
         // Recharger la page après 2 secondes
         setTimeout(() => {
             window.location.reload();
         }, 2000);
-        
+
     } catch (error) {
         console.error('Erreur lors de la restauration:', error);
         showError(error?.response?.data?.detail || 'Erreur lors de la restauration de la sauvegarde');
@@ -791,10 +791,10 @@ async function loadCategories() {
                 </td>
             </tr>
         `;
-        
+
         // Appel API via utilitaire avec timeout pour éviter les chargements infinis
         const response = await safeLoadData(
-            () => axios.get('/api/products/categories'),
+            () => axios.get('/api/products/categories/'),
             {
                 timeout: 8000,
                 fallbackData: [],
@@ -802,7 +802,7 @@ async function loadCategories() {
             }
         );
         const data = response.data;
-        
+
         // Validation et normalisation des données (catégories déclarées)
         let declared = [];
         if (Array.isArray(data)) {
@@ -844,10 +844,10 @@ async function loadCategories() {
         categories = merged;
 
         console.log('[settings] categories loaded:', Array.isArray(categories) ? categories.length : 0, categories.slice ? categories.slice(0, 3) : categories);
-        
+
         // Vider le tableau et afficher les catégories
         tableBody.innerHTML = '';
-        
+
         if (categories.length === 0) {
             tableBody.innerHTML = `
                 <tr>
@@ -923,7 +923,7 @@ async function loadCategories() {
                 window._catTableBound = true;
             }
         }
-        
+
     } catch (error) {
         console.error('Erreur lors du chargement des catégories:', error);
         tableBody.innerHTML = `
@@ -946,18 +946,18 @@ async function saveCategory() {
         const categoryId = document.getElementById('categoryId').value;
         const categoryName = document.getElementById('categoryName').value;
         const requiresVariants = document.getElementById('categoryRequiresVariants').checked;
-        
+
         if (!categoryName.trim()) {
             showError('Le nom de la catégorie est obligatoire');
             return;
         }
-        
+
         // Préparer les données
         const categoryData = {
             name: categoryName,
             requires_variants: !!requiresVariants
         };
-        
+
         const url = categoryId ? `/api/products/categories/${categoryId}` : '/api/products/categories';
         if (categoryId) {
             await axios.put(url, categoryData);
@@ -969,13 +969,13 @@ async function saveCategory() {
         try {
             await fetch('/api/products/cache', { method: 'DELETE', credentials: 'include' });
         } catch (e) { /* silencieux */ }
-        
+
         // Réinitialiser le formulaire
         document.getElementById('categoryId').value = '';
         document.getElementById('categoryName').value = '';
         document.getElementById('saveCategoryBtn').innerHTML = '<i class="bi bi-plus-circle me-2"></i>Ajouter';
         document.getElementById('categoryRequiresVariants').checked = false;
-        
+
         // Si la catégorie supprimée était sélectionnée pour les attributs, réinitialiser
         if (selectedCategoryId && Number(selectedCategoryId) === Number(categoryId)) {
             selectedCategoryId = null;
@@ -985,9 +985,9 @@ async function saveCategory() {
         }
         // Recharger les catégories
         await loadCategories();
-        
+
         showSuccess(`Catégorie ${categoryId ? 'modifiée' : 'ajoutée'} avec succès`);
-        
+
     } catch (error) {
         console.error('Erreur lors de la sauvegarde de la catégorie:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la sauvegarde de la catégorie');
@@ -1002,7 +1002,7 @@ function startCreateCategoryFromName(name) {
         document.getElementById('categoryRequiresVariants').checked = false;
         document.getElementById('saveCategoryBtn').innerHTML = '<i class="bi bi-plus-circle me-2"></i>Créer';
         document.getElementById('categoryName').focus();
-    } catch (e) {}
+    } catch (e) { }
 }
 
 // Éditer une catégorie
@@ -1015,18 +1015,18 @@ function editCategory(categoryId) {
     }
     // Trouver la catégorie (comparaison numérique robuste)
     const category = categories.find(c => Number(c.category_id) === targetId);
-    
+
     if (!category) {
         showError('Catégorie non trouvée');
         return;
     }
-    
+
     // Remplir le formulaire
     document.getElementById('categoryId').value = categoryId;
     document.getElementById('categoryName').value = category.name || '';
     document.getElementById('categoryRequiresVariants').checked = !!category.requires_variants;
     document.getElementById('saveCategoryBtn').innerHTML = '<i class="bi bi-check-circle me-2"></i>Modifier';
-    
+
     // Focus sur le champ
     document.getElementById('categoryName').focus();
 }
@@ -1035,7 +1035,7 @@ function editCategory(categoryId) {
 function deleteCategory(categoryId, categoryName) {
     document.getElementById('deleteCategoryId').value = categoryId;
     document.getElementById('categoryToDelete').textContent = categoryName;
-    
+
     // Afficher le modal
     const modal = new bootstrap.Modal(document.getElementById('deleteCategoryModal'));
     modal.show();
@@ -1045,27 +1045,27 @@ function deleteCategory(categoryId, categoryName) {
 async function confirmDeleteCategory() {
     try {
         const categoryId = document.getElementById('deleteCategoryId').value;
-        
+
         if (!categoryId) {
             showError('ID de catégorie manquant');
             return;
         }
-        
+
         // Appel API via axios
         await axios.delete(`/api/products/categories/${categoryId}`);
-        
+
         // Fermer le modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('deleteCategoryModal'));
         modal.hide();
-        
+
         // Purger le cache produits puis recharger
         try {
             await fetch('/api/products/cache', { method: 'DELETE', credentials: 'include' });
         } catch (e) { /* ignore */ }
         await loadCategories();
-        
+
         showSuccess('Catégorie supprimée avec succès');
-        
+
     } catch (error) {
         console.error('Erreur lors de la suppression de la catégorie:', error);
         showError(error.response?.data?.detail || error.message || 'Erreur lors de la suppression de la catégorie');
@@ -1293,7 +1293,7 @@ async function uploadFavicon() {
             credentials: 'include'
         });
         if (!resp.ok) {
-            const err = await resp.json().catch(()=>({detail:'Erreur upload'}));
+            const err = await resp.json().catch(() => ({ detail: 'Erreur upload' }));
             throw new Error(err.detail || 'Erreur upload');
         }
         const data = await resp.json();
@@ -1331,7 +1331,7 @@ async function resetFavicon() {
             credentials: 'include'
         });
         if (!resp.ok) {
-            const err = await resp.json().catch(()=>({detail:'Erreur reset'}));
+            const err = await resp.json().catch(() => ({ detail: 'Erreur reset' }));
             throw new Error(err.detail || 'Erreur reset');
         }
 
@@ -1363,7 +1363,7 @@ async function resetFavicon() {
 }
 
 // Live preview for favicon
-document.addEventListener('change', function(e){
+document.addEventListener('change', function (e) {
     const t = e.target;
     if (t && t.id === 'faviconFile' && t.files && t.files[0]) {
         const reader = new FileReader();
