@@ -659,7 +659,8 @@ async def create_invoice(
                 price=unit_price_dec,
                 total=line_total_dec,
                 external_price=external_price_decimal,
-                external_profit=external_profit
+                external_profit=external_profit,
+                variant_id=resolved_variant.variant_id if resolved_variant else None
             )
             db.add(db_item)
 
@@ -1112,12 +1113,20 @@ async def update_invoice(
             # 1) Depuis meta notes
             for entry in (serials_meta or []):
                 pid = entry.get("product_id")
+                qty_sold = entry.get("quantity", 1)  # Quantité vendue par variante
                 if pid is not None:
                     processed_products.add(int(pid))
                 for imei in (entry.get("imeis") or []):
                     variant = db.query(ProductVariant).filter(func.trim(ProductVariant.imei_serial) == str(imei).strip()).first()
-                    if variant and bool(variant.is_sold):
-                        variant.is_sold = False
+                    if variant:
+                        # Restaurer selon le mode de gestion stock
+                        variant_qty = getattr(variant, 'quantity', None)
+                        if variant_qty is not None:
+                            # Mode quantité: restaurer le stock
+                            variant.quantity = (variant_qty or 0) + int(qty_sold or 1)
+                        elif bool(variant.is_sold):
+                            # Mode is_sold: réactiver la variante
+                            variant.is_sold = False
 
             # 2) Fallback: IMEI dans le libellé de ligne
             import re as _re
@@ -1136,10 +1145,17 @@ async def update_invoice(
                 except Exception:
                     pass
                 variant = db.query(ProductVariant).filter(func.trim(ProductVariant.imei_serial) == imei).first()
-                if variant and bool(variant.is_sold):
-                    variant.is_sold = False
+                if variant:
+                    # Restaurer selon le mode de gestion stock
+                    variant_qty = getattr(variant, 'quantity', None)
+                    if variant_qty is not None:
+                        # Mode quantité: restaurer le stock
+                        variant.quantity = (variant_qty or 0) + int(it.quantity or 1)
+                    elif bool(variant.is_sold):
+                        # Mode is_sold: réactiver la variante
+                        variant.is_sold = False
 
-            # 3) Ultime fallback: désactiver l'état vendu pour autant de variantes que la quantité (par produit)
+            # 3) Ultime fallback: restaurer le stock pour autant de variantes que la quantité (par produit)
             for it in (old_items or []):
                 pid = int(it.product_id) if it.product_id is not None else None
                 if pid is None:
@@ -1152,14 +1168,27 @@ async def update_invoice(
                     qty = 0
                 if qty <= 0:
                     continue
-                sold_variants = (
+                # Chercher les variantes avec quantité d'abord
+                qty_variants = (
                     db.query(ProductVariant)
-                    .filter(ProductVariant.product_id == pid, ProductVariant.is_sold == True)
-                    .limit(qty)
+                    .filter(ProductVariant.product_id == pid, ProductVariant.quantity != None)
+                    .limit(1)
                     .all()
                 )
-                for v in sold_variants:
-                    v.is_sold = False
+                if qty_variants:
+                    # Mode quantité: restaurer sur la première variante trouvée
+                    for v in qty_variants:
+                        v.quantity = (v.quantity or 0) + qty
+                else:
+                    # Mode is_sold: désactiver l'état vendu
+                    sold_variants = (
+                        db.query(ProductVariant)
+                        .filter(ProductVariant.product_id == pid, ProductVariant.is_sold == True)
+                        .limit(qty)
+                        .all()
+                    )
+                    for v in sold_variants:
+                        v.is_sold = False
         except Exception:
             # Ne pas bloquer la mise à jour si la réactivation des variantes échoue
             pass
@@ -1194,13 +1223,101 @@ async def update_invoice(
         invoice.warranty_start_date = getattr(invoice_data, "warranty_start_date", None)
         invoice.warranty_end_date = getattr(invoice_data, "warranty_end_date", None)
 
+        # 2a) TRAITEMENT DES ÉCHANGES (EXCHANGE)
+        # Supprimer les anciens items d'échange et recréer les nouveaux
+        if invoice.invoice_type == 'exchange':
+            # Supprimer les anciens items d'échange
+            old_exchange_items = db.query(InvoiceExchangeItem).filter(InvoiceExchangeItem.invoice_id == invoice.invoice_id).all()
+            for old_ex in old_exchange_items:
+                # Si le produit était suivi en stock, faut-il le "sortir" (car il avait été entré) ?
+                # create_invoice faisait un mouvement IN pour l'échange.
+                # Donc si on supprime l'échange, on doit annuler cette entrée (OUT) ou décrémenter le stock.
+                if old_ex.product_id:
+                    prod_ex = db.query(Product).filter(Product.product_id == old_ex.product_id).first()
+                    if prod_ex:
+                        # Annuler l'entrée en stock
+                        prod_ex.quantity = max(0, (prod_ex.quantity or 0) - old_ex.quantity)
+                        # Créer mouvement OUT correctif
+                        try:
+                            create_stock_movement(
+                                db=db,
+                                product_id=old_ex.product_id,
+                                quantity=old_ex.quantity,
+                                movement_type="OUT",
+                                reference_type="EX_REVERT",
+                                reference_id=invoice.invoice_id,
+                                notes=f"Correction mise à jour échange - Facture {invoice.invoice_number}"
+                            )
+                        except Exception:
+                            pass
+                db.delete(old_ex)
+            db.flush()
+
+            # Créer les nouveaux items d'échange
+            exchange_total = 0
+            if invoice_data.exchange_items:
+                for ex_item_data in invoice_data.exchange_items:
+                    # Logique similaire à create_invoice
+                    ex_product = None
+                    if ex_item_data.product_id:
+                        ex_product = db.query(Product).filter(Product.product_id == ex_item_data.product_id).first()
+                    
+                    db_ex_item = InvoiceExchangeItem(
+                        invoice_id=invoice.invoice_id,
+                        product_id=ex_item_data.product_id,
+                        product_name=ex_item_data.product_name,
+                        quantity=ex_item_data.quantity,
+                        price=ex_item_data.price,
+                        variant_id=ex_item_data.variant_id,
+                        variant_imei=ex_item_data.variant_imei,
+                        notes=ex_item_data.notes
+                    )
+                    db.add(db_ex_item)
+                    
+                    # Mise à jour stock pour le produit repris (IN)
+                    if ex_product:
+                        ex_product.quantity = (ex_product.quantity or 0) + ex_item_data.quantity
+                        try:
+                            create_stock_movement(
+                                db=db,
+                                product_id=ex_product.product_id,
+                                quantity=ex_item_data.quantity,
+                                movement_type="IN",
+                                reference_type="EXCHANGE",
+                                reference_id=invoice.invoice_id,
+                                notes=f"Mise à jour échange - Produit reçu - Facture {invoice.invoice_number}"
+                            )
+                        except Exception:
+                            pass
+                    
+                    if ex_item_data.price:
+                        exchange_total += float(ex_item_data.price) * ex_item_data.quantity
+
+            # Mettre à jour la remise d'échange et les totaux
+            if exchange_total > 0:
+                from decimal import Decimal
+                exchange_discount_dec = Decimal(str(exchange_total))
+                invoice.exchange_discount = exchange_discount_dec
+                # Recalculer le total NET à payer
+                # Le total venant du payload (invoice_data.total) est le total des articles + taxes
+                # On doit soustraire la remise d'échange
+                current_total_dec = Decimal(str(invoice_data.total)) 
+                current_subtotal_dec = Decimal(str(invoice_data.subtotal))
+                
+                # Attention: si le frontend envoie déjà le total net, on risque de soustraire deux fois.
+                # Mais selon l'analyse de calculateTotals, le frontend envoie (subtotal + tax).
+                # Il n'applique PAS la soustraction de l'échange dans 'dataset.total'.
+                
+                invoice.total = current_total_dec - exchange_discount_dec
+                invoice.subtotal = current_subtotal_dec - exchange_discount_dec
+                
         # Recalculer remaining_amount en fonction du payé existant
         try:
             paid = float(invoice.paid_amount or 0)
             total_val = float(invoice.total or 0)
             invoice.remaining_amount = max(0, total_val - paid)
             # Ajuster le statut si nécessaire
-            if invoice.remaining_amount == 0:
+            if invoice.remaining_amount <= 0: # Correction: <= 0 pour gérer les trop-perçus éventuels
                 invoice.status = "payée"
             elif paid > 0:
                 invoice.status = "partiellement payée"
@@ -1270,16 +1387,30 @@ async def update_invoice(
                     if not resolved_variant:
                         raise HTTPException(status_code=404, detail=f"Variante avec IMEI {imei_code} introuvable")
                 
-                # Si une variante est spécifiée, valider et marquer comme vendue
+                # Si une variante est spécifiée, valider et gérer le stock
                 if resolved_variant:
                     if resolved_variant.product_id != product.product_id:
                         raise HTTPException(status_code=400, detail="Variante n'appartient pas au produit")
-                    if bool(resolved_variant.is_sold):
-                        raise HTTPException(status_code=400, detail=f"La variante {resolved_variant.imei_serial} est déjà vendue")
-                    # Forcer quantité = 1 par ligne de variante
-                    if int(item_data.quantity or 0) != 1:
-                        raise HTTPException(status_code=400, detail="Pour un produit avec variantes, la quantité doit être 1 par ligne de variante")
-                    resolved_variant.is_sold = True
+                    
+                    # Vérifier disponibilité selon le mode de gestion stock
+                    variant_qty = getattr(resolved_variant, 'quantity', None)
+                    if variant_qty is not None:
+                        # Mode quantité: vérifier stock disponible
+                        if variant_qty <= 0:
+                            raise HTTPException(status_code=400, detail=f"Stock insuffisant pour la variante {resolved_variant.imei_serial}")
+                        # Accepter quantity demandée <= variant.quantity
+                        if int(item_data.quantity or 0) > variant_qty:
+                            raise HTTPException(status_code=400, detail=f"Quantité demandée ({item_data.quantity}) supérieure au stock disponible ({variant_qty})")
+                        # Décrémenter le stock de la variante
+                        resolved_variant.quantity = variant_qty - int(item_data.quantity or 0)
+                    else:
+                        # Mode is_sold (rétrocompat): vérifier si déjà vendue
+                        if bool(resolved_variant.is_sold):
+                            raise HTTPException(status_code=400, detail=f"La variante {resolved_variant.imei_serial} est déjà vendue")
+                        # Forcer quantité = 1 par ligne de variante sans quantity
+                        if int(item_data.quantity or 0) != 1:
+                            raise HTTPException(status_code=400, detail="Pour un produit avec variantes (sans quantité), la quantité doit être 1 par ligne de variante")
+                        resolved_variant.is_sold = True
                 # Si aucune variante n'est spécifiée lors d'une mise à jour, on permet quand même
                 # (c'est une modification de facture existante, les variantes ont été restaurées)
             else:
@@ -1317,7 +1448,8 @@ async def update_invoice(
                 total=item_data.total,
                 is_gift=getattr(item_data, 'is_gift', False),
                 external_price=external_price_decimal,
-                external_profit=external_profit
+                external_profit=external_profit,
+                variant_id=resolved_variant.variant_id if resolved_variant else None
             )
             db.add(db_item)
             
@@ -1775,8 +1907,23 @@ async def delete_invoice(
                 except Exception as e:
                     logging.warning(f"Échec de synchronisation Google Sheets pour le produit {item.product_id}: {e}")
         
-        # Réactiver les variantes vendues
+        # Réactiver les variantes vendues ou restaurer leur quantité
         try:
+            # MÉTHODE 0: Utiliser directement le variant_id des items de facture (le plus fiable)
+            processed_variants = set()
+            for it in (invoice.items or []):
+                if it.variant_id:
+                    variant = db.query(ProductVariant).filter(ProductVariant.variant_id == it.variant_id).first()
+                    if variant:
+                        processed_variants.add(it.variant_id)
+                        variant_qty = getattr(variant, 'quantity', None)
+                        if variant_qty is not None:
+                            # Mode quantité: restaurer le stock avec la quantité de la ligne
+                            variant.quantity = (variant_qty or 0) + int(it.quantity or 1)
+                        elif bool(variant.is_sold):
+                            # Mode is_sold: réactiver la variante
+                            variant.is_sold = False
+            
             serials_meta = []
             if invoice.notes:
                 import re, json
@@ -1801,16 +1948,27 @@ async def delete_invoice(
             if serials_meta:
                 for entry in (serials_meta or []):
                     pid = entry.get('product_id')
+                    qty_sold = entry.get('quantity', 1)  # Quantité vendue
                     if pid is not None:
                         processed_products.add(int(pid))
                     for imei in (entry.get('imeis') or []):
                         variant = db.query(ProductVariant).filter(func.trim(ProductVariant.imei_serial) == str(imei).strip()).first()
-                        if variant and bool(variant.is_sold):
-                            variant.is_sold = False
+                        if variant:
+                            # Restaurer selon le mode de gestion stock
+                            variant_qty = getattr(variant, 'quantity', None)
+                            if variant_qty is not None:
+                                # Mode quantité: restaurer le stock
+                                variant.quantity = (variant_qty or 0) + int(qty_sold or 1)
+                            elif bool(variant.is_sold):
+                                # Mode is_sold: réactiver la variante
+                                variant.is_sold = False
             else:
                 # 2) Fallback: extraire IMEI depuis le libellé de chaque ligne: "(IMEI: XXXXX)"
                 import re
                 for it in (invoice.items or []):
+                    # Sauter si déjà traité via variant_id (méthode 0)
+                    if it.variant_id and it.variant_id in processed_variants:
+                        continue
                     name = it.product_name or ""
                     m2 = re.search(r"\(IMEI:\s*([^)]+)\)", name, flags=re.I)
                     if not m2:
@@ -1821,13 +1979,22 @@ async def delete_invoice(
                     if it.product_id is not None:
                         processed_products.add(int(it.product_id))
                     variant = db.query(ProductVariant).filter(func.trim(ProductVariant.imei_serial) == imei).first()
-                    if variant and bool(variant.is_sold):
-                        variant.is_sold = False
+                    if variant and variant.variant_id not in processed_variants:
+                        # Restaurer selon le mode de gestion stock
+                        variant_qty = getattr(variant, 'quantity', None)
+                        if variant_qty is not None:
+                            # Mode quantité: restaurer le stock
+                            variant.quantity = (variant_qty or 0) + int(it.quantity or 1)
+                        elif bool(variant.is_sold):
+                            # Mode is_sold: réactiver la variante
+                            variant.is_sold = False
 
             # 3) Ultime fallback: pour les produits concernés mais sans IMEI détecté,
-            # désactiver l'état "vendu" pour autant de variantes que la quantité des lignes
-            # (utile pour anciennes factures sans meta ni IMEI dans le libellé)
+            # restaurer le stock pour autant de variantes que la quantité des lignes
             for it in (invoice.items or []):
+                # Sauter si déjà traité via variant_id (méthode 0)
+                if it.variant_id and it.variant_id in processed_variants:
+                    continue
                 pid = int(it.product_id) if it.product_id is not None else None
                 if pid is None:
                     continue
@@ -1840,21 +2007,34 @@ async def delete_invoice(
                     qty = 0
                 if qty <= 0:
                     continue
-                sold_variants = (
+                # Chercher les variantes avec quantité d'abord
+                qty_variants = (
                     db.query(ProductVariant)
-                    .filter(ProductVariant.product_id == pid, ProductVariant.is_sold == True)
-                    .limit(qty)
+                    .filter(ProductVariant.product_id == pid, ProductVariant.quantity != None)
+                    .limit(1)
                     .all()
                 )
-                for v in sold_variants:
-                    v.is_sold = False
-                # Mettre à jour la quantité disponible du produit si incohérente
-                try:
-                    product = db.query(Product).filter(Product.product_id == pid).first()
-                    if product:
-                        product.quantity = (product.quantity or 0) + len(sold_variants)
-                except Exception:
-                    pass
+                if qty_variants:
+                    # Mode quantité: restaurer sur la première variante trouvée
+                    for v in qty_variants:
+                        v.quantity = (v.quantity or 0) + qty
+                else:
+                    # Mode is_sold: désactiver l'état vendu
+                    sold_variants = (
+                        db.query(ProductVariant)
+                        .filter(ProductVariant.product_id == pid, ProductVariant.is_sold == True)
+                        .limit(qty)
+                        .all()
+                    )
+                    for v in sold_variants:
+                        v.is_sold = False
+                    # Mettre à jour la quantité disponible du produit si incohérente
+                    try:
+                        product = db.query(Product).filter(Product.product_id == pid).first()
+                        if product:
+                            product.quantity = (product.quantity or 0) + len(sold_variants)
+                    except Exception:
+                        pass
         except Exception:
             # ne pas bloquer la suppression de la facture si parsing échoue
             pass
@@ -2195,8 +2375,9 @@ async def send_invoice_whatsapp(
             raise HTTPException(status_code=404, detail="Facture non trouvée")
         
         # Construire l'URL du PDF de la facture (accessible depuis n8n via réseau Docker)
-        app_public_url = os.getenv("APP_PUBLIC_URL", "http://techzone_app:8000")
-        pdf_url = f"{app_public_url}/invoices/print/{data.invoice_id}"
+        # Utiliser APP_DOCKER_URL pour l'accès interne Docker (HTTP)
+        app_docker_url = os.getenv("APP_DOCKER_URL", "http://app:8000")
+        pdf_url = f"{app_docker_url}/invoices/print/{data.invoice_id}"
         
         # Appeler le webhook n8n pour envoyer via WhatsApp
         webhook_url = f"{N8N_BASE_URL}/webhook/send-invoice-whatsapp"
@@ -2240,9 +2421,10 @@ async def send_invoice_email(
         if not invoice:
             raise HTTPException(status_code=404, detail="Facture non trouvée")
         
-        # Construire l'URL HTML de la facture (même URL que WhatsApp)
-        app_public_url = os.getenv("APP_PUBLIC_URL", "http://techzone_app:8000")
-        pdf_url = f"{app_public_url}/invoices/print/{data.invoice_id}"
+        # Construire l'URL HTML de la facture (accessible depuis n8n via réseau Docker)
+        # Utiliser APP_DOCKER_URL pour l'accès interne Docker (HTTP)
+        app_docker_url = os.getenv("APP_DOCKER_URL", "http://app:8000")
+        pdf_url = f"{app_docker_url}/invoices/print/{data.invoice_id}"
         
         # Appeler le webhook n8n pour envoyer par email
         webhook_url = f"{N8N_BASE_URL}/webhook/send-invoice-email"
@@ -2324,6 +2506,7 @@ async def duplicate_invoice(
                 quantity=item.quantity,
                 price=item.price,
                 total=item.total,
+                variant_id=item.variant_id,
             )
             db.add(new_item)
         

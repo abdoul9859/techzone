@@ -27,6 +27,8 @@ services:
       # URL publique de l'application pour les liens accessibles depuis n8n
       APP_PUBLIC_URL: "https://techzonesn.cc"
       APP_NAME: "TECHZONE"
+      # Service WhatsApp
+      WHATSAPP_SERVICE_URL: "http://whatsapp-free:3002"
       # Debt reminder / Twilio will be injected from .env via env_file above
     # ports:
     #   - "80:8000"
@@ -70,18 +72,7 @@ services:
       - "5678:5678"
     depends_on:
       - app
-      - waha
-
-  waha:
-    image: devlikeapro/waha:latest
-    container_name: techzone_waha
-    restart: unless-stopped
-    environment:
-      WAHA_API_KEY: ${WAHA_API_KEY:-TECHZONE-Waha-2024}
-      WAHA_PRINT_QR: "false"
-      WHATSAPP_DEFAULT_ENGINE: "WEBJS"
-    volumes:
-      - ./whatsapp-service/whatsapp-session:/app/.waha
+      - whatsapp-free
 
   whatsapp-free:
     build:

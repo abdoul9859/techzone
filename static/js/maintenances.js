@@ -467,8 +467,16 @@ function openMaintenanceModal() {
     document.getElementById('warrantyDays').value = '30';
     document.getElementById('advancePaid').value = '0';
 
-    const modal = new bootstrap.Modal(document.getElementById('maintenanceModal'));
-    modal.show();
+    // Utiliser openEnhancedModal si disponible, sinon fallback sur bootstrap.Modal
+    if (typeof openEnhancedModal === 'function') {
+        openEnhancedModal('maintenanceModal');
+    } else {
+        const modal = new bootstrap.Modal(document.getElementById('maintenanceModal'), {
+            backdrop: 'static',
+            keyboard: false
+        });
+        modal.show();
+    }
 }
 
 // Modifier une maintenance
@@ -522,8 +530,16 @@ async function editMaintenance(id) {
         document.getElementById('notes').value = m.notes || '';
         document.getElementById('internalNotes').value = m.internal_notes || '';
 
-        const modal = new bootstrap.Modal(document.getElementById('maintenanceModal'));
-        modal.show();
+        // Utiliser openEnhancedModal si disponible, sinon fallback sur bootstrap.Modal avec config
+        if (typeof openEnhancedModal === 'function') {
+            openEnhancedModal('maintenanceModal');
+        } else {
+            const modal = new bootstrap.Modal(document.getElementById('maintenanceModal'), {
+                backdrop: 'static',
+                keyboard: false
+            });
+            modal.show();
+        }
     } catch (error) {
         console.error('Erreur chargement maintenance:', error);
         showError('Erreur lors du chargement de la maintenance');

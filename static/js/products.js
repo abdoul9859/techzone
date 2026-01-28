@@ -1074,7 +1074,15 @@ function loadVariants(variants, soldVariantIds = new Set()) {
 
     let html = '';
     variants.forEach(variant => {
-        const isSold = soldVariantIds.has(variant.variant_id);
+        // Une variante est "vendue/épuisée" si:
+        // - Mode is_sold (sans quantité): is_sold = true ET quantity est null/undefined
+        // - Mode quantité: quantity <= 0
+        // Si quantity > 0, la variante n'est JAMAIS considérée comme vendue
+        const qty = variant.quantity;
+        const hasQuantity = qty !== null && qty !== undefined;
+        const isSold = hasQuantity 
+            ? (Number(qty) <= 0)  // Mode quantité: épuisée si qty <= 0
+            : soldVariantIds.has(variant.variant_id);  // Mode is_sold: utiliser l'API
         html += createVariantForm(variant, variantCounter++, isSold);
     });
 

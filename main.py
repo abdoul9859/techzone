@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, FileResponse, Response, JSONResponse
+import httpx
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from starlette.responses import Response as StarletteResponse
@@ -149,17 +150,35 @@ async def cache_headers_middleware(request, call_next):
         # Help browsers auto-upgrade any stray http resources to https and enable HSTS
         # Skip security headers for Docker internal network requests or routes marked with X-Skip-CSP
         client_host = request.client.host if request.client else ""
-        is_docker_internal = client_host.startswith("172.") or client_host.startswith("192.168.")
-        skip_csp = response.headers.get("X-Skip-CSP") == "true" or is_docker_internal
+        host_header = request.headers.get("host", "").lower()
         
-        # Debug: log for print routes
-        if path.startswith("/invoices/print/") or path.startswith("/quotations/print/"):
-            print(f"DEBUG CSP: path={path}, client_host={client_host}, is_docker_internal={is_docker_internal}, skip_csp={skip_csp}")
+        # Détecter les requêtes depuis le réseau Docker interne
+        is_docker_internal = (
+            client_host.startswith("172.") or 
+            client_host.startswith("192.168.") or
+            client_host.startswith("10.") or
+            "app:" in host_header or
+            "whatsapp-free:" in host_header or
+            "n8n:" in host_header or
+            host_header.startswith("app:") or
+            host_header.startswith("whatsapp-free:") or
+            host_header.startswith("n8n:")
+        )
+        
+        # Pour les routes print, toujours skip CSP si c'est une requête interne Docker
+        # Ces routes sont accédées par Puppeteer depuis whatsapp-free, donc on doit éviter upgrade-insecure-requests
+        if is_print_route:
+            # Pour les routes print, TOUJOURS skip CSP pour éviter que Puppeteer essaie HTTPS
+            # car ces routes sont accédées depuis le réseau Docker interne (HTTP uniquement)
+            skip_csp = True  # Toujours skip pour les routes print
+            print(f"DEBUG CSP: path={path}, client_host={client_host}, host_header={host_header}, skip_csp={skip_csp} (print route - toujours skip)")
+        else:
+            skip_csp = response.headers.get("X-Skip-CSP") == "true" or is_docker_internal
         
         if not skip_csp:
             is_localhost = (
                 client_host in ["127.0.0.1", "localhost"] or
-                request.headers.get("host", "").startswith(("localhost:", "127.0.0.1:", "app:"))
+                host_header.startswith(("localhost:", "127.0.0.1:"))
             )
             if not is_localhost:
                 response.headers.setdefault("Content-Security-Policy", "upgrade-insecure-requests")
@@ -613,6 +632,52 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
     """Page des paramètres de l'application"""
     return templates.TemplateResponse("settings.html", {"request": request, "global_settings": _load_company_settings(db)})
 
+# ===== Routes WhatsApp =====
+@app.get("/whatsapp", response_class=HTMLResponse)
+async def whatsapp_page(request: Request, db: Session = Depends(get_db)):
+    """Page de connexion WhatsApp"""
+    return templates.TemplateResponse("whatsapp.html", {
+        "request": request, 
+        "global_settings": _load_company_settings(db)
+    })
+
+@app.get("/api/whatsapp/qr")
+async def whatsapp_qr_proxy():
+    """Proxy pour obtenir le QR code WhatsApp"""
+    base_url = os.getenv("WHATSAPP_SERVICE_URL", "http://whatsapp-free:3002")
+    url = f"{base_url.rstrip('/')}/api/qr"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            return JSONResponse(content=r.json())
+    except Exception as e:
+        return JSONResponse(status_code=503, content={"status": "error", "message": str(e)})
+
+@app.get("/api/whatsapp/status")
+async def whatsapp_status_proxy():
+    """Proxy pour obtenir le statut WhatsApp"""
+    base_url = os.getenv("WHATSAPP_SERVICE_URL", "http://whatsapp-free:3002")
+    url = f"{base_url.rstrip('/')}/api/status"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            return JSONResponse(content=r.json())
+    except Exception as e:
+        return JSONResponse(status_code=503, content={"status": "not_ready", "qrCode": False, "message": str(e)})
+
+# ===== Legacy compatibility endpoints =====
+@app.get("/api/status")
+async def whatsapp_status_legacy():
+    """Endpoint legacy pour compatibilité"""
+    return await whatsapp_status_proxy()
+
+@app.get("/api/qr")
+async def whatsapp_qr_legacy():
+    """Endpoint legacy pour compatibilité"""
+    return await whatsapp_qr_proxy()
+
 @app.get("/suppliers", response_class=HTMLResponse)
 async def suppliers_page(request: Request, db: Session = Depends(get_db)):
     """Page de gestion des fournisseurs"""
@@ -779,6 +844,8 @@ def _load_company_settings(db: Session) -> dict:
 
 @app.get("/invoices/print/{invoice_id}", response_class=HTMLResponse)
 async def print_invoice_page(request: Request, invoice_id: int, db: Session = Depends(get_db)):
+    # Marquer la réponse pour skip CSP avant même de la créer
+    # Cela permet au middleware de détecter que c'est une route print
     inv = (
         db.query(Invoice)
         .options(joinedload(Invoice.items), joinedload(Invoice.client), joinedload(Invoice.payments), joinedload(Invoice.exchange_items))

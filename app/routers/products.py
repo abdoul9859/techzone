@@ -70,9 +70,18 @@ async def get_available_variants(
         if not product:
             raise HTTPException(status_code=404, detail="Produit non trouvé")
         
+        # Une variante est disponible si:
+        # - Mode quantité: quantity > 0
+        # - Mode is_sold: is_sold = False (et quantity est NULL)
+        from sqlalchemy import or_, and_
         available_variants = db.query(ProductVariant).filter(
             ProductVariant.product_id == product_id,
-            ProductVariant.is_sold == False
+            or_(
+                # Mode quantité: disponible si quantity > 0
+                and_(ProductVariant.quantity != None, ProductVariant.quantity > 0),
+                # Mode is_sold: disponible si is_sold = False et quantity est NULL
+                and_(ProductVariant.quantity == None, ProductVariant.is_sold == False)
+            )
         ).all()
         
         variants_data = []
@@ -115,15 +124,25 @@ async def get_sold_variants(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Récupérer les variantes vendues d'un produit"""
+    """Récupérer les variantes vendues d'un produit (épuisées ou marquées is_sold)"""
     try:
         product = db.query(Product).filter(Product.product_id == product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="Produit non trouvé")
         
+        # Une variante est considérée "vendue/épuisée" si:
+        # - Mode is_sold: is_sold = True ET quantity est NULL
+        # - Mode quantité: quantity <= 0 (épuisée)
+        # Une variante avec quantity > 0 n'est JAMAIS considérée comme vendue
+        from sqlalchemy import or_, and_
         sold_variants = db.query(ProductVariant).filter(
             ProductVariant.product_id == product_id,
-            ProductVariant.is_sold == True
+            or_(
+                # Mode is_sold (sans quantité): is_sold = True et quantity est NULL
+                and_(ProductVariant.is_sold == True, ProductVariant.quantity == None),
+                # Mode quantité: stock épuisé (quantity <= 0)
+                and_(ProductVariant.quantity != None, ProductVariant.quantity <= 0)
+            )
         ).all()
         
         return {

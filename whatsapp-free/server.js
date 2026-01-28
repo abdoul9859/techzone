@@ -1,245 +1,399 @@
-import express from 'express';
-import pino from 'pino';
-import makeWASocket, { useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
-import QRCode from 'qrcode';
-import fs from 'fs';
-import path from 'path';
-import puppeteer from 'puppeteer';
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const express = require('express');
+const qrcode = require('qrcode-terminal');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const puppeteer = require('puppeteer');
 
 const PORT = process.env.PORT || 3002;
 const HOST = '0.0.0.0';
 const app = express();
-app.use(express.json({ limit: '1mb' }));
-
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
-
-// Compatibility: /api/sendText { phone, text }
-app.post('/api/sendText', async (req, res) => {
-  try {
-    if (!ready || !sock) return res.status(503).json({ error: 'WhatsApp not connected' });
-    const { phone, text } = req.body || {};
-    const num = normalizePhone(phone);
-    if (!num || !text) return res.status(400).json({ error: 'phone and text required' });
-    const jid = num.endsWith('@s.whatsapp.net') ? num : `${num}@s.whatsapp.net`;
-    await sock.sendMessage(jid, { text });
-    res.json({ ok: true });
-  } catch (e) {
-    logger.error({ err: e }, 'Send error (api/sendText)');
-    res.status(500).json({ error: 'send failed' });
-  }
-});
-
-// /api/sendPdf { phone, htmlUrl, filename, caption }
-// Download HTML, convert to PDF, send as WhatsApp document
-app.post('/api/sendPdf', async (req, res) => {
-  let browser = null;
-  let pdfPath = null;
-  let htmlPath = null;
-  try {
-    if (!ready || !sock) return res.status(503).json({ error: 'WhatsApp not connected' });
-    const { phone, htmlUrl, filename, caption } = req.body || {};
-    const num = normalizePhone(phone);
-    if (!num || !htmlUrl) return res.status(400).json({ error: 'phone and htmlUrl required' });
-    
-    logger.info({ htmlUrl, phone: num }, 'Generating PDF from HTML');
-    
-    // Download HTML using wget to bypass CSP issues
-    const tmpDir = '/tmp';
-    htmlPath = path.join(tmpDir, `invoice-${Date.now()}.html`);
-    const { execSync } = await import('child_process');
-    
-    try {
-      execSync(`wget -q -O "${htmlPath}" "${htmlUrl}"`, { timeout: 30000 });
-      logger.info({ htmlPath, size: fs.statSync(htmlPath).size }, 'HTML downloaded');
-    } catch (wgetErr) {
-      logger.error({ err: wgetErr }, 'wget failed, trying curl');
-      execSync(`curl -s -o "${htmlPath}" "${htmlUrl}"`, { timeout: 30000 });
-      logger.info({ htmlPath, size: fs.statSync(htmlPath).size }, 'HTML downloaded via curl');
-    }
-    
-    // Launch puppeteer and convert local HTML to PDF
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage'
-      ]
-    });
-    const page = await browser.newPage();
-    
-    // Load local HTML file
-    await page.goto(`file://${htmlPath}`, { 
-      waitUntil: 'networkidle2', 
-      timeout: 20000
-    });
-    
-    // Generate PDF in temp directory
-    const pdfFilename = filename || `document-${Date.now()}.pdf`;
-    pdfPath = path.join(tmpDir, pdfFilename);
-    await page.pdf({
-      path: pdfPath,
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' }
-    });
-    await browser.close();
-    browser = null;
-    
-    logger.info({ pdfPath, size: fs.statSync(pdfPath).size }, 'PDF generated');
-    
-    // Send PDF via WhatsApp
-    const jid = num.endsWith('@s.whatsapp.net') ? num : `${num}@s.whatsapp.net`;
-    const pdfBuffer = fs.readFileSync(pdfPath);
-    await sock.sendMessage(jid, {
-      document: pdfBuffer,
-      mimetype: 'application/pdf',
-      fileName: pdfFilename,
-      caption: caption || ''
-    });
-    
-    // Cleanup
-    fs.unlinkSync(pdfPath);
-    pdfPath = null;
-    if (htmlPath && fs.existsSync(htmlPath)) fs.unlinkSync(htmlPath);
-    
-    logger.info({ phone: num, filename: pdfFilename }, 'PDF sent successfully');
-    res.json({ ok: true });
-  } catch (e) {
-    logger.error({ err: e }, 'Send PDF error');
-    if (browser) try { await browser.close(); } catch {}
-    if (pdfPath && fs.existsSync(pdfPath)) try { fs.unlinkSync(pdfPath); } catch {}
-    if (htmlPath && fs.existsSync(htmlPath)) try { fs.unlinkSync(htmlPath); } catch {}
-    res.status(500).json({ error: 'send failed', message: e.message });
-  }
-});
-
-let sock = null;
-let lastQr = null;
-let ready = false;
-let reconnecting = false;
+app.use(express.json({ limit: '10mb' }));
 
 const SESSION_DIR = process.env.WHATSAPP_SESSION_DIR || './session';
 fs.mkdirSync(SESSION_DIR, { recursive: true });
 
-async function startSocket() {
-  if (reconnecting) return;
-  reconnecting = true;
-  try {
-    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
-    const { version } = await fetchLatestBaileysVersion();
-    sock = makeWASocket({
-      printQRInTerminal: false,
-      auth: state,
-      browser: ['Techzone', 'Chrome', '1.0.0'],
-      version,
-      logger,
-    });
+// État du client WhatsApp
+let clientReady = false;
+let qrCodeData = null;
 
-    sock.ev.on('connection.update', (update) => {
-      const { connection, qr, lastDisconnect } = update;
-      if (qr) {
-        lastQr = qr;
-        ready = false;
-        logger.info('QR code updated and ready');
-      }
-      if (connection === 'open') {
-        ready = true;
-        lastQr = null;
-        logger.info('WhatsApp connected');
-      } else if (connection === 'close') {
-        ready = false;
-        lastQr = null;
-        const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== 401);
-        logger.warn({ err: lastDisconnect?.error }, 'WhatsApp disconnected');
-        if (shouldReconnect) setTimeout(startSocket, 2000);
-      }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-  } catch (e) {
-    logger.error({ err: e }, 'Failed to start socket');
-  } finally {
-    reconnecting = false;
-  }
-}
-
-// Utilities
-function normalizePhone(raw) {
-  const s = String(raw || '').replace(/[^0-9]/g, '');
-  if (!s) return '';
-  // If already in international format starting with country code, keep as-is
-  return s;
-}
-
-async function getQrPngDataUrl() {
-  if (!lastQr) return null;
-  const dataUrl = await QRCode.toDataURL(lastQr, { margin: 1, width: 300 });
-  return dataUrl;
-}
-
-// Endpoints
-app.get('/', (_req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.end(`<!doctype html><html><head><meta charset="utf-8"><title>WhatsApp Gateway</title></head><body style="font-family:system-ui;padding:20px"><h2>WhatsApp Gateway</h2><ul><li><a href="/status">/status</a></li><li><a href="/qr">/qr</a></li></ul><p>Use POST /send with JSON { phone, text }.</p></body></html>`);
-});
-
-app.get('/status', async (_req, res) => {
-  res.json({ connected: ready, hasQr: !!lastQr });
-});
-
-app.get('/qr', async (_req, res) => {
-  try {
-    if (!lastQr) return res.status(404).json({ message: ready ? 'Already connected' : 'QR not available yet' });
-    const dataUrl = await getQrPngDataUrl();
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>WhatsApp QR</title></head><body style="display:flex;align-items:center;justify-content:center;height:100vh;background:#f7f7f7"><div style="text-align:center"><h3>Scannez ce QR avec WhatsApp</h3><img src="${dataUrl}" alt="QR"/><p style="color:#666">Rafraîchir si expiré</p></div></body></html>`;
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (e) {
-    logger.error({ err: e }, 'QR generation error');
-    res.status(500).json({ error: 'QR generation error' });
-  }
-});
-
-app.post('/send', async (req, res) => {
-  try {
-    if (!ready || !sock) return res.status(503).json({ error: 'WhatsApp not connected' });
-    const { phone, text } = req.body || {};
-    const num = normalizePhone(phone);
-    if (!num || !text) return res.status(400).json({ error: 'phone and text required' });
-    const jid = num.endsWith('@s.whatsapp.net') ? num : `${num}@s.whatsapp.net`;
-    await sock.sendMessage(jid, { text });
-    res.json({ ok: true });
-  } catch (e) {
-    logger.error({ err: e }, 'Send error');
-    res.status(500).json({ error: 'send failed' });
-  }
-});
-
-// Reset session to force a new QR
-app.post('/reset', async (_req, res) => {
-  try {
-    ready = false; lastQr = null;
-    if (sock?.end) { try { await sock.end(); } catch {}
+function _normalizeBase64(s) {
+    if (!s) return s;
+    let out = String(s).replace(/\s+/g, '');
+    // Fix padding
+    const pad = out.length % 4;
+    if (pad === 2) out += '==';
+    else if (pad === 3) out += '=';
+    else if (pad === 1) {
+        // If length mod 4 is 1, the string is invalid; best effort: trim last char
+        out = out.slice(0, -1);
     }
-    // delete session files
+    return out;
+}
+
+function _isLikelyPdf(buf) {
     try {
-      for (const f of fs.readdirSync(SESSION_DIR)) {
-        fs.rmSync(path.join(SESSION_DIR, f), { recursive: true, force: true });
-      }
-    } catch {}
-    setTimeout(startSocket, 200);
-    res.json({ ok: true, message: 'Session reset, reload /qr in a few seconds' });
-  } catch (e) {
-    logger.error({ err: e }, 'reset failed');
-    res.status(500).json({ error: 'reset failed' });
-  }
+        if (!buf || buf.length < 1000) return false;
+        const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+        // PDF files start with bytes: 0x25 0x50 0x44 0x46 0x2D => "%PDF-"
+        return b.length >= 5 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46 && b[4] === 0x2d;
+    } catch {
+        return false;
+    }
+}
+
+function _cleanupChromiumSingletonLocks(rootDir) {
+    try {
+        if (!fs.existsSync(rootDir)) return;
+
+        const stack = [rootDir];
+        while (stack.length) {
+            const dir = stack.pop();
+            let entries = [];
+            try {
+                entries = fs.readdirSync(dir, { withFileTypes: true });
+            } catch {
+                continue;
+            }
+
+            for (const ent of entries) {
+                const full = path.join(dir, ent.name);
+                if (ent.isDirectory()) {
+                    stack.push(full);
+                    continue;
+                }
+                // Chromium lock files that prevent relaunch after crash
+                if (ent.name.startsWith('Singleton')) {
+                    try {
+                        fs.rmSync(full, { force: true });
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
+        }
+    } catch {
+        // ignore
+    }
+}
+
+// Initialiser le client WhatsApp
+const client = new Client({
+    authStrategy: new LocalAuth({
+        dataPath: SESSION_DIR
+    }),
+    puppeteer: {
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+        ],
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
+    }
 });
 
-// Start HTTP server immediately
+// Événements WhatsApp
+client.on('qr', (qr) => {
+    console.log('QR Code reçu, scannez-le avec WhatsApp');
+    qrcode.generate(qr, { small: true });
+    qrCodeData = qr;
+});
+
+client.on('ready', () => {
+    console.log('✅ WhatsApp client prêt!');
+    clientReady = true;
+    qrCodeData = null;
+});
+
+client.on('authenticated', () => {
+    console.log('✅ Authentification réussie!');
+});
+
+client.on('auth_failure', (msg) => {
+    console.error('❌ Échec d\'authentification:', msg);
+    clientReady = false;
+});
+
+client.on('disconnected', (reason) => {
+    console.log('❌ Déconnecté:', reason);
+    clientReady = false;
+    // Réinitialiser après un délai
+    setTimeout(() => {
+        if (!clientReady) {
+            console.log('Tentative de reconnexion...');
+            client.initialize();
+        }
+    }, 5000);
+});
+
+// Nettoyer les locks Chromium avant démarrage
+_cleanupChromiumSingletonLocks(path.resolve(SESSION_DIR));
+client.initialize();
+
+// API Endpoints
+
+// Statut du service
+app.get('/api/status', (req, res) => {
+    res.json({
+        status: clientReady ? 'ready' : 'not_ready',
+        qrCode: qrCodeData ? true : false
+    });
+});
+
+// Obtenir le QR code
+app.get('/api/qr', (req, res) => {
+    if (clientReady) {
+        return res.json({ status: 'already_connected' });
+    }
+    if (qrCodeData) {
+        return res.json({ qr: qrCodeData });
+    }
+    res.json({ status: 'waiting_for_qr' });
+});
+
+// Envoyer un message texte
+app.post('/api/sendText', async (req, res) => {
+    try {
+        const { phone, text } = req.body;
+        
+        if (!clientReady) {
+            return res.status(503).json({ error: 'WhatsApp non connecté' });
+        }
+        
+        if (!phone || !text) {
+            return res.status(400).json({ error: 'phone et text requis' });
+        }
+        
+        // Formater le numéro
+        let chatId = phone.replace(/\+/g, '').replace(/ /g, '').replace(/-/g, '');
+        if (!chatId.endsWith('@c.us')) {
+            chatId = chatId + '@c.us';
+        }
+        
+        const result = await client.sendMessage(chatId, text, { sendSeen: false });
+        res.json({ success: true, messageId: result.id._serialized });
+        
+    } catch (error) {
+        console.error('Erreur envoi texte:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Envoyer un fichier depuis une URL
+app.post('/api/sendFile', async (req, res) => {
+    try {
+        const { phone, fileUrl, filename, caption } = req.body;
+        
+        if (!clientReady) {
+            return res.status(503).json({ error: 'WhatsApp non connecté' });
+        }
+        
+        if (!phone || !fileUrl) {
+            return res.status(400).json({ error: 'phone et fileUrl requis' });
+        }
+        
+        // Formater le numéro
+        let chatId = phone.replace(/\+/g, '').replace(/ /g, '').replace(/-/g, '');
+        if (!chatId.endsWith('@c.us')) {
+            chatId = chatId + '@c.us';
+        }
+        
+        console.log(`Téléchargement du fichier depuis: ${fileUrl}`);
+        
+        // Télécharger le fichier
+        const response = await axios.get(fileUrl, { 
+            responseType: 'arraybuffer',
+            timeout: 30000
+        });
+        
+        const base64Data = Buffer.from(response.data).toString('base64');
+        const mimeType = response.headers['content-type'] || 'application/octet-stream';
+
+        const base64Clean = _normalizeBase64(base64Data);
+        
+        // Créer le média
+        const media = new MessageMedia(mimeType, base64Clean, filename || 'document');
+        
+        // Envoyer
+        const result = await client.sendMessage(chatId, media, { 
+            caption: caption || '', 
+            sendSeen: false, 
+            sendMediaAsDocument: true 
+        });
+        
+        res.json({ success: true, messageId: result.id._serialized });
+        
+    } catch (error) {
+        console.error('Erreur envoi fichier:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Envoyer un PDF généré depuis une URL HTML
+app.post('/api/sendPdf', async (req, res) => {
+    let browser = null;
+    try {
+        const { phone, htmlUrl, filename, caption } = req.body;
+        
+        if (!clientReady) {
+            return res.status(503).json({ error: 'WhatsApp non connecté' });
+        }
+        
+        if (!phone || !htmlUrl) {
+            return res.status(400).json({ error: 'phone et htmlUrl requis' });
+        }
+        
+        // Formater le numéro
+        let chatId = phone.replace(/\+/g, '').replace(/ /g, '').replace(/-/g, '');
+        if (!chatId.endsWith('@c.us')) {
+            chatId = chatId + '@c.us';
+        }
+        
+        console.log(`Génération PDF depuis: ${htmlUrl}`);
+        
+        // Récupérer le HTML via axios (contourne le problème HTTPS de Chromium 144+)
+        console.log(`Récupération du HTML via axios: ${htmlUrl}`);
+        const htmlResponse = await axios.get(htmlUrl, {
+            timeout: 30000,
+            responseType: 'text',
+            headers: {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }
+        });
+        const htmlContent = htmlResponse.data;
+        console.log(`HTML récupéré: ${htmlContent.length} caractères`);
+        
+        // Extraire la base URL pour les ressources relatives
+        const baseUrl = htmlUrl.substring(0, htmlUrl.lastIndexOf('/') + 1);
+        
+        // Utiliser Puppeteer pour générer le PDF
+        browser = await puppeteer.launch({
+            headless: 'shell',
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu'
+            ],
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+            protocolTimeout: 60000
+        });
+        
+        const page = await browser.newPage();
+        
+        // Définir la viewport pour A4 (210mm x 297mm à 96 DPI)
+        await page.setViewport({ width: 794, height: 1123 });
+        
+        // Charger le HTML directement (évite les problèmes de réseau Chromium)
+        await page.setContent(htmlContent, { 
+            waitUntil: 'networkidle0',
+            timeout: 30000
+        });
+        
+        // Émuler le media print pour cacher les éléments .no-print
+        await page.emulateMediaType('print');
+        
+        // Générer le PDF au format A4
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            preferCSSPageSize: false,
+            margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' }
+        });
+        
+        await browser.close();
+        browser = null;
+        
+        console.log(`PDF généré: ${pdfBuffer.length} bytes`);
+
+        if (!_isLikelyPdf(pdfBuffer)) {
+            throw new Error('PDF généré invalide ou vide (la page source n\'est peut-être pas accessible depuis le conteneur)');
+        }
+        
+        const pdfBuf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+
+        // Convertir en base64
+        const base64Data = pdfBuf.toString('base64');
+        const base64Clean = _normalizeBase64(base64Data);
+        
+        // Créer le média
+        const media = new MessageMedia('application/pdf', base64Clean, filename || 'document.pdf');
+        
+        // Envoyer
+        const result = await client.sendMessage(chatId, media, { 
+            caption: caption || '', 
+            sendSeen: false, 
+            sendMediaAsDocument: true 
+        });
+        
+        res.json({ success: true, messageId: result.id._serialized });
+        
+    } catch (error) {
+        console.error('Erreur génération/envoi PDF:', error);
+        if (browser) {
+            try {
+                await browser.close();
+            } catch {}
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Envoyer une image depuis une URL
+app.post('/api/sendImage', async (req, res) => {
+    try {
+        const { phone, imageUrl, caption } = req.body;
+        
+        if (!clientReady) {
+            return res.status(503).json({ error: 'WhatsApp non connecté' });
+        }
+        
+        if (!phone || !imageUrl) {
+            return res.status(400).json({ error: 'phone et imageUrl requis' });
+        }
+        
+        // Formater le numéro
+        let chatId = phone.replace(/\+/g, '').replace(/ /g, '').replace(/-/g, '');
+        if (!chatId.endsWith('@c.us')) {
+            chatId = chatId + '@c.us';
+        }
+        
+        // Télécharger l'image
+        const media = await MessageMedia.fromUrl(imageUrl);
+
+        if (media && media.data) {
+            media.data = _normalizeBase64(media.data);
+        }
+        
+        // Envoyer
+        const result = await client.sendMessage(chatId, media, { 
+            caption: caption || '', 
+            sendSeen: false, 
+            sendMediaAsDocument: true 
+        });
+        
+        res.json({ success: true, messageId: result.id._serialized });
+        
+    } catch (error) {
+        console.error('Erreur envoi image:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Démarrer le serveur
 app.listen(PORT, HOST, () => {
-  logger.info(`WhatsApp free gateway listening on http://${HOST}:${PORT}`);
+    console.log(`🚀 Service WhatsApp démarré sur le port ${PORT}`);
+    console.log(`📱 Endpoints disponibles:`);
+    console.log(`   GET  /api/status - Statut du service`);
+    console.log(`   GET  /api/qr - Obtenir le QR code`);
+    console.log(`   POST /api/sendText - Envoyer un message`);
+    console.log(`   POST /api/sendFile - Envoyer un fichier`);
+    console.log(`   POST /api/sendImage - Envoyer une image`);
+    console.log(`   POST /api/sendPdf - Générer et envoyer un PDF`);
 });
-
-// Start WhatsApp socket connection in parallel
-startSocket();

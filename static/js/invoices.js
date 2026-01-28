@@ -1669,9 +1669,46 @@ function updateInvoiceItemsDisplay() {
                 </select>
             </td>
             <td>
-                <input type="number" class="form-control form-control-sm" value="${item.quantity}" min="0"
-                       ${item.is_custom ? '' : (((productVariantsByProductId.get(Number(item.product_id)) || []).length > 0) ? 'disabled' : '')}
-                       onchange="updateItemQuantity(${item.id}, this.value)">
+                ${(() => {
+                    // Déterminer si le champ quantité doit être désactivé
+                    // - Produit personnalisé: toujours activé
+                    // - Variante avec quantity définie: activé (on peut en prendre plusieurs)
+                    // - Variante unique (sans quantity): désactivé, forcé à 1
+                    // - Produit sans variantes: activé
+                    if (item.is_custom) {
+                        return `<input type="number" class="form-control form-control-sm" value="${item.quantity}" min="1" onchange="updateItemQuantity(${item.id}, this.value)">`;
+                    }
+                    const variants = productVariantsByProductId.get(Number(item.product_id)) || [];
+                    if (variants.length === 0) {
+                        // Pas de variantes: quantité libre
+                        return `<input type="number" class="form-control form-control-sm" value="${item.quantity}" min="1" onchange="updateItemQuantity(${item.id}, this.value)">`;
+                    }
+                    // Produit avec variantes - chercher la variante sélectionnée
+                    let selectedVariant = null;
+                    if (item.variant_id) {
+                        selectedVariant = variants.find(v => String(v.variant_id) === String(item.variant_id));
+                    }
+                    // Si pas trouvée via variant_id, chercher via scannedImeis
+                    if (!selectedVariant && item.scannedImeis && item.scannedImeis.length > 0) {
+                        const firstImei = item.scannedImeis[0];
+                        selectedVariant = variants.find(v => v.imei_serial && String(v.imei_serial).trim() === String(firstImei).trim());
+                    }
+                    
+                    if (selectedVariant) {
+                        // Une variante est sélectionnée
+                        if (selectedVariant.quantity !== null && selectedVariant.quantity !== undefined) {
+                            // Mode quantité: on peut modifier (max = stock disponible)
+                            const maxQty = Number(selectedVariant.quantity) || 1;
+                            return `<input type="number" class="form-control form-control-sm" value="${item.quantity}" min="1" max="${maxQty}" onchange="updateItemQuantity(${item.id}, this.value)" title="Stock disponible: ${maxQty}">`;
+                        } else {
+                            // Mode is_sold (variante unique): quantité forcée à 1
+                            return `<input type="number" class="form-control form-control-sm" value="1" min="1" max="1" disabled title="Variante unique (1 seule unité)">`;
+                        }
+                    } else {
+                        // Pas de variante sélectionnée encore: désactiver
+                        return `<input type="number" class="form-control form-control-sm" value="${item.quantity}" min="1" disabled title="Sélectionnez une variante">`;
+                    }
+                })()}
             </td>
             <td>
                 ${!item.is_custom && item.product_id ? (() => {
@@ -1686,7 +1723,7 @@ function updateInvoiceItemsDisplay() {
             })() : '<small class="text-muted">-</small>'}
             </td>
             <td>
-                <input type="text" class="form-control form-control-sm" value="${(item.unit_price).toLocaleString('fr-FR')}"
+                <input type="text" class="form-control form-control-sm unit-price-input" value="${(item.unit_price).toLocaleString('fr-FR')}"
                        oninput="handlePriceInput(${item.id}, this)"
                        onchange="handlePriceInput(${item.id}, this)">
             </td>
@@ -1849,13 +1886,25 @@ function renderVariantOptions(productId, selectedVariantId) {
     if (!productId) return '';
     const variants = productVariantsByProductId.get(Number(productId)) || [];
     if (!variants.length) return '';
-    // Ne proposer que les variantes disponibles (non vendues)
-    return variants.filter(v => !v.is_sold).map(v => `
+    // Ne proposer que les variantes disponibles (non vendues ET avec stock > 0 si quantité définie)
+    return variants.filter(v => {
+        if (v.is_sold) return false;
+        // Si la variante a une quantité définie, vérifier qu'elle est > 0
+        const qty = v.quantity;
+        if (qty !== null && qty !== undefined) {
+            return Number(qty) > 0;
+        }
+        // Mode is_sold uniquement (sans quantité): disponible si non vendue
+        return true;
+    }).map(v => {
+        const qty = v.quantity;
+        const stockInfo = (qty !== null && qty !== undefined) ? ` (Stock: ${qty})` : '';
+        return `
         <option value="${v.variant_id}" ${String(v.variant_id) === String(selectedVariantId || '') ? 'selected' : ''}>
             ${escapeHtml(v.imei_serial || v.barcode || ('Variante #' + v.variant_id))}
-            ${v.condition ? '(' + escapeHtml(String(v.condition).charAt(0).toUpperCase() + String(v.condition).slice(1)) + ')' : ''}
+            ${v.condition ? '(' + escapeHtml(String(v.condition).charAt(0).toUpperCase() + String(v.condition).slice(1)) + ')' : ''}${stockInfo}
         </option>
-    `).join('');
+    `}).join('');
 }
 
 function selectVariant(itemId, variantId) {
@@ -1864,19 +1913,41 @@ function selectVariant(itemId, variantId) {
     const variants = productVariantsByProductId.get(Number(item.product_id)) || [];
     const v = variants.find(x => String(x.variant_id) === String(variantId));
     if (v && v.is_sold) { showWarning('Cette variante est déjà vendue'); return; }
-    const usedImeis = getUsedImeis(itemId);
-    if (v && !usedImeis.has(_normalizeCode(v.imei_serial))) {
-        item.scannedImeis = item.scannedImeis || [];
-        if (!item.scannedImeis.some(x => _normalizeCode(x) === _normalizeCode(v.imei_serial))) {
-            item.scannedImeis.push(v.imei_serial);
-            // quantity becomes count of IMEIs
-            item.quantity = item.scannedImeis.length;
-            item.total = item.quantity * (Number(item.unit_price) || 0);
+    // Vérifier aussi si la variante a une quantité définie et si elle est épuisée
+    if (v && v.quantity !== null && v.quantity !== undefined && Number(v.quantity) <= 0) {
+        showWarning('Cette variante est en rupture de stock'); return;
+    }
+    
+    // Deux modes de gestion selon le type de variante
+    if (v && v.quantity !== null && v.quantity !== undefined) {
+        // Mode quantité: variante avec stock multiple
+        // On stocke la variante sélectionnée et on permet de modifier la quantité
+        item.variant_id = v.variant_id;
+        item.scannedImeis = [v.imei_serial]; // Une seule variante mais quantité modifiable
+        item.quantity = 1; // Par défaut 1, l'utilisateur peut augmenter
+        item.total = item.quantity * (Number(item.unit_price) || 0);
+        // Appliquer le prix de la variante si défini
+        if (v.price && Number(v.price) > 0) {
+            item.unit_price = Number(v.price);
+            item.total = item.quantity * item.unit_price;
         }
     } else {
-        if (v && usedImeis.has(_normalizeCode(v.imei_serial))) showWarning('Cette variante/IMEI est déjà scannée dans la facture');
+        // Mode is_sold: variantes uniques (chaque variante = 1 unité)
+        const usedImeis = getUsedImeis(itemId);
+        if (v && !usedImeis.has(_normalizeCode(v.imei_serial))) {
+            item.scannedImeis = item.scannedImeis || [];
+            if (!item.scannedImeis.some(x => _normalizeCode(x) === _normalizeCode(v.imei_serial))) {
+                item.scannedImeis.push(v.imei_serial);
+                // quantity becomes count of IMEIs (1 variante = 1 unité)
+                item.quantity = item.scannedImeis.length;
+                item.total = item.quantity * (Number(item.unit_price) || 0);
+            }
+        } else {
+            if (v && usedImeis.has(_normalizeCode(v.imei_serial))) showWarning('Cette variante/IMEI est déjà scannée dans la facture');
+        }
     }
-    // Keep dropdown option unselected to allow multiple adds
+    
+    // Keep dropdown option unselected to allow multiple adds (for is_sold mode)
     const selectEl = document.querySelector(`select[onchange="selectVariant(${itemId}, this.value)"]`);
     if (selectEl) selectEl.value = '';
     // Merge same product rows
@@ -1919,11 +1990,30 @@ function clearScannedImeis(itemId) {
 function updateItemQuantity(itemId, quantity) {
     const item = invoiceItems.find(i => i.id === itemId);
     if (item) {
-        const hasVariants = (productVariantsByProductId.get(Number(item.product_id)) || []).length > 0;
+        const variants = productVariantsByProductId.get(Number(item.product_id)) || [];
+        const hasVariants = variants.length > 0;
+        
         if (hasVariants) {
-            // lock quantity to number of scanned IMEIs for variant products
-            const count = (item.scannedImeis || []).length;
-            item.quantity = count > 0 ? count : 0;
+            // Trouver la variante sélectionnée
+            let selectedVariant = null;
+            if (item.variant_id) {
+                selectedVariant = variants.find(v => String(v.variant_id) === String(item.variant_id));
+            }
+            if (!selectedVariant && item.scannedImeis && item.scannedImeis.length > 0) {
+                const firstImei = item.scannedImeis[0];
+                selectedVariant = variants.find(v => v.imei_serial && String(v.imei_serial).trim() === String(firstImei).trim());
+            }
+            
+            if (selectedVariant && selectedVariant.quantity !== null && selectedVariant.quantity !== undefined) {
+                // Mode quantité: permettre de modifier la quantité (max = stock disponible)
+                const parsed = parseInt(quantity, 10);
+                const maxQty = Number(selectedVariant.quantity) || 1;
+                item.quantity = Number.isNaN(parsed) ? 1 : Math.max(1, Math.min(parsed, maxQty));
+            } else {
+                // Mode is_sold: quantité = nombre d'IMEIs scannés
+                const count = (item.scannedImeis || []).length;
+                item.quantity = count > 0 ? count : 0;
+            }
         } else {
             const parsed = parseInt(quantity, 10);
             item.quantity = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
@@ -1945,7 +2035,7 @@ function updateItemPrice(itemId, price) {
             const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
             if (row) {
                 const qtyInput = row.querySelector('input[type="number"]');
-                const priceInput = row.querySelector('input[type="text"]');
+                const priceInput = row.querySelector('.unit-price-input');
                 const totalCell = row.querySelector('.row-total');
                 if (qtyInput) qtyInput.value = String(item.quantity);
                 if (priceInput) priceInput.value = (item.unit_price).toLocaleString('fr-FR');
@@ -2136,6 +2226,55 @@ async function saveInvoice(status) {
             });
         } catch (e) { console.warn('Erreur lecture prix externes:', e); }
 
+        // Synchroniser les champs des produits échangés (prix de reprise et nom)
+        // car les événements oninput peuvent ne pas avoir été déclenchés
+        try {
+            const exchangeRows = document.querySelectorAll('#exchangeItemsBody tr[data-item-id]');
+            exchangeRows.forEach(row => {
+                const itemId = parseInt(row.getAttribute('data-item-id'));
+                if (!itemId) return;
+                const item = exchangeItems.find(i => i.id === itemId);
+                if (!item) return;
+                
+                // Synchroniser le prix de reprise
+                const priceInput = row.querySelector('input[type="number"][placeholder="Prix de reprise..."]');
+                if (priceInput) {
+                    const priceValue = parseFloat(priceInput.value);
+                    item.price = !isNaN(priceValue) ? priceValue : 0;
+                }
+                
+                // Synchroniser le nom du produit (pour les articles personnalisés)
+                const nameInput = row.querySelector('input[type="text"][placeholder="Nom de l\'article..."]');
+                if (nameInput) {
+                    item.product_name = nameInput.value || '';
+                }
+                
+                // Synchroniser aussi le champ de recherche produit (pour les articles non-personnalisés)
+                const searchInput = row.querySelector('.exchange-product-search-input');
+                if (searchInput && !item.product_id) {
+                    item.product_name = searchInput.value || '';
+                }
+                
+                // Synchroniser la quantité
+                const qtyInput = row.querySelector('input[type="number"][min="1"]');
+                if (qtyInput) {
+                    item.quantity = parseInt(qtyInput.value) || 1;
+                }
+                
+                // Synchroniser l'IMEI/numéro de série
+                const imeiInput = row.querySelector('input[placeholder="IMEI/Numéro série"]');
+                if (imeiInput) {
+                    item.variant_imei = imeiInput.value || '';
+                }
+                
+                // Synchroniser les notes
+                const notesInput = row.querySelector('input[placeholder="Notes..."]');
+                if (notesInput) {
+                    item.notes = notesInput.value || '';
+                }
+            });
+        } catch (e) { console.warn('Erreur synchronisation produits échangés:', e); }
+
         // UI lock: prevent double submit and indicate progress
         const modalEl = document.getElementById('invoiceModal');
         const footerButtons = modalEl ? modalEl.querySelectorAll('.modal-footer button, .modal-footer a') : [];
@@ -2176,6 +2315,7 @@ async function saveInvoice(status) {
                 product_id: item.product_id,
                 product_name: item.product_name || '',
                 quantity: item.quantity || 1,
+                price: item.price || 0,
                 variant_id: item.variant_id || null,
                 variant_imei: item.variant_imei || null,
                 notes: item.notes || null
@@ -2251,11 +2391,36 @@ async function saveInvoice(status) {
                         const numPrice = Number(extPrice);
                         return (!isNaN(numPrice) && numPrice > 0) ? numPrice : null;
                     })();
-                    console.log('Envoi item avec IMEI:', {
+                    
+                    // Vérifier si c'est une variante avec quantité (mode quantité) ou variante unique (mode is_sold)
+                    const firstImei = item.scannedImeis[0];
+                    const firstVariant = variants.find(x => _normalizeCode(x.imei_serial) === _normalizeCode(firstImei));
+                    const isQuantityMode = firstVariant && firstVariant.quantity !== null && firstVariant.quantity !== undefined;
+                    
+                    if (isQuantityMode) {
+                        // Mode quantité: une seule ligne avec la quantité spécifiée
+                        console.log('Envoi item mode quantité:', {
+                            product_id: item.product_id,
+                            quantity: item.quantity,
+                            variant_id: firstVariant.variant_id
+                        });
+                        return [{
+                            product_id: item.product_id,
+                            product_name: item.product_name,
+                            quantity: item.quantity,
+                            price: item.unit_price,
+                            total: item.quantity * item.unit_price,
+                            is_gift: item.is_gift || false,
+                            variant_id: firstVariant.variant_id,
+                            external_price: finalExtPrice
+                        }];
+                    }
+                    
+                    // Mode is_sold: une ligne par IMEI avec quantité = 1
+                    console.log('Envoi item mode is_sold:', {
                         product_id: item.product_id,
-                        external_price_raw: extPrice,
-                        external_price_type: typeof extPrice,
-                        external_price_final: finalExtPrice
+                        external_price_final: finalExtPrice,
+                        imeis: item.scannedImeis
                     });
                     return item.scannedImeis.map(imei => {
                         const v = variants.find(x => _normalizeCode(x.imei_serial) === _normalizeCode(imei));
@@ -3620,12 +3785,13 @@ function renderExchangeItems() {
             <input type="text" class="form-control form-control-sm" 
                    placeholder="Nom de l'article..."
                    value="${escapeHtml(item.product_name || '')}"
-                   onchange="updateExchangeItem(${item.id}, 'product_name', this.value)">
+                   oninput="updateExchangeItem(${item.id}, 'product_name', this.value)">
         ` : `
             <div class="position-relative" style="min-width: 20rem;">
                 <input type="text" class="form-control form-control-sm exchange-product-search-input" 
                        placeholder="Rechercher un produit..."
-                       value="${item.product_name || ''}"
+                       value="${escapeHtml(item.product_name || '')}"
+                       oninput="updateExchangeItem(${item.id}, 'product_name', this.value)"
                        data-exchange-item-id="${item.id}" />
                 <div class="exchange-product-suggestions list-group position-absolute w-100 d-none" 
                      style="max-height: 300px; overflow-y: auto; z-index: 1050; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
@@ -3639,7 +3805,7 @@ function renderExchangeItems() {
                    placeholder="Prix de reprise..."
                    min="0" step="1"
                    value="${item.price || ''}"
-                   onchange="updateExchangeItem(${item.id}, 'price', parseFloat(this.value) || 0)">
+                   oninput="updateExchangeItem(${item.id}, 'price', parseFloat(this.value) || 0)">
         `;
 
         return `

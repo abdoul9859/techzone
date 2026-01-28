@@ -787,9 +787,10 @@ async def send_quotation_whatsapp(
         if not quotation:
             raise HTTPException(status_code=404, detail="Devis non trouvé")
         
-        # Construire l'URL du PDF du devis
-        base_url = str(request.base_url).rstrip('/')
-        pdf_url = f"{base_url}/quotations/print/{data.quotation_id}"
+        # Construire l'URL du PDF du devis (accessible depuis n8n via réseau Docker)
+        # Utiliser APP_DOCKER_URL pour l'accès interne Docker (HTTP)
+        app_docker_url = os.getenv("APP_DOCKER_URL", "http://app:8000")
+        pdf_url = f"{app_docker_url}/quotations/print/{data.quotation_id}"
         
         # Appeler le webhook n8n pour envoyer via WhatsApp
         webhook_url = f"{N8N_BASE_URL}/webhook/send-quotation-whatsapp"
@@ -838,9 +839,10 @@ async def send_quotation_email(
         if not quotation:
             raise HTTPException(status_code=404, detail="Devis non trouvé")
         
-        # Construire l'URL HTML du devis (même URL que WhatsApp)
-        app_public_url = os.getenv("APP_PUBLIC_URL", "http://techzone_app:8000")
-        pdf_url = f"{app_public_url}/quotations/print/{data.quotation_id}"
+        # Construire l'URL HTML du devis (accessible depuis n8n via réseau Docker)
+        # Utiliser APP_DOCKER_URL pour l'accès interne Docker (HTTP)
+        app_docker_url = os.getenv("APP_DOCKER_URL", "http://app:8000")
+        pdf_url = f"{app_docker_url}/quotations/print/{data.quotation_id}"
         
         # Appeler le webhook n8n pour envoyer par email
         webhook_url = f"{N8N_BASE_URL}/webhook/send-quotation-email"

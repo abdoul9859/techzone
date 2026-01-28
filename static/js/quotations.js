@@ -1175,7 +1175,14 @@ function updateItemPrice(itemId, price) {
         item.unit_price = parseFloat(price) || 0;
         item.total = item.quantity * item.unit_price;
 
-        updateQuotationItemsDisplay();
+        // Update DOM in place to avoid re-render (preserves input focus and custom name)
+        try {
+            const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
+            if (row) {
+                const totalCell = row.querySelector('td:nth-last-child(2) strong');
+                if (totalCell) totalCell.textContent = formatCurrency(item.total);
+            }
+        } catch (e) { /* ignore */ }
         calculateTotals();
     }
 }

@@ -89,6 +89,7 @@
         
         <button class="btn" onclick="refreshQR()">🔄 Rafraîchir QR Code</button>
         <button class="btn" onclick="checkStatus()">📊 Vérifier Statut</button>
+        <button class="btn" onclick="resetSession()">🔄 Réinitialiser Session</button>
         
         <div class="instructions">
             <h3>📱 Instructions</h3>
@@ -102,9 +103,19 @@
     </div>
 
     <script>
-        const API_URL = '/waha/api';
-        const API_KEY = 'TECHZONE-Waha-2024';
-        const SESSION = 'default';
+        // Configuration - utiliser le service whatsapp-free
+        const API_URL = 'http://whatsapp-free:3002';
+        // Pour accès depuis le navigateur, utiliser l'URL publique si disponible
+        const PUBLIC_API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+            ? 'http://localhost:3002' 
+            : 'https://techzonesn.cc/whatsapp';
+        
+        // Utiliser l'URL publique pour les requêtes depuis le navigateur
+        const getApiUrl = () => {
+            // Si on est dans un environnement Docker/n8n, utiliser l'URL interne
+            // Sinon utiliser l'URL publique
+            return typeof window !== 'undefined' ? PUBLIC_API_URL : API_URL;
+        };
         
         async function checkStatus() {
             const statusEl = document.getElementById('status');
@@ -112,46 +123,32 @@
             const phoneNumber = document.getElementById('phone-number');
             
             try {
-                const res = await fetch(`${API_URL}/sessions/${SESSION}`, {
-                    headers: { 'X-Api-Key': API_KEY }
-                });
+                const res = await fetch(`${getApiUrl()}/status`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 
-                if (data.status === 'WORKING') {
+                if (data.connected) {
                     statusEl.className = 'status connected';
                     statusEl.innerHTML = '✅ WhatsApp connecté!';
                     phoneInfo.style.display = 'block';
-                    phoneNumber.textContent = data.me?.id || 'Connecté';
+                    const info = data.clientInfo || {};
+                    phoneNumber.textContent = info.wid || info.pushname || 'Connecté';
                     document.getElementById('qrcode').innerHTML = '<p style="font-size:48px;">✅</p><p>WhatsApp est connecté!</p>';
-                } else if (data.status === 'SCAN_QR_CODE') {
+                } else if (data.hasQr) {
                     statusEl.className = 'status connecting';
                     statusEl.innerHTML = '📱 Scannez le QR code avec WhatsApp';
                     phoneInfo.style.display = 'none';
                     refreshQR();
-                } else if (data.status === 'STOPPED') {
-                    statusEl.className = 'status connecting';
-                    statusEl.innerHTML = '⏳ Démarrage de la session...';
-                    await startSession();
                 } else {
                     statusEl.className = 'status connecting';
-                    statusEl.innerHTML = '⏳ Statut: ' + data.status;
+                    statusEl.innerHTML = '⏳ En attente du QR code...';
+                    phoneInfo.style.display = 'none';
                     setTimeout(checkStatus, 3000);
                 }
             } catch (e) {
                 statusEl.className = 'status error';
                 statusEl.innerHTML = '❌ Erreur: ' + e.message;
-            }
-        }
-        
-        async function startSession() {
-            try {
-                await fetch(`${API_URL}/sessions/${SESSION}/start`, {
-                    method: 'POST',
-                    headers: { 'X-Api-Key': API_KEY }
-                });
-                setTimeout(checkStatus, 5000);
-            } catch (e) {
-                console.error('Erreur démarrage:', e);
+                console.error('Status check error:', e);
             }
         }
         
@@ -160,32 +157,56 @@
             const statusEl = document.getElementById('status');
             
             try {
-                // Récupérer le QR comme blob avec l'API key
-                const res = await fetch(`${API_URL}/${SESSION}/auth/qr`, {
-                    headers: { 'X-Api-Key': API_KEY }
-                });
+                const res = await fetch(`${getApiUrl()}/qr`);
+                if (!res.ok) {
+                    if (res.status === 404) {
+                        const data = await res.json().catch(() => ({}));
+                        qrEl.innerHTML = '<p>QR non disponible. ' + (data.message || 'Attendez quelques secondes...') + '</p>';
+                        statusEl.innerHTML = '⏳ ' + (data.message || 'En attente...');
+                        setTimeout(checkStatus, 3000);
+                        return;
+                    }
+                    throw new Error(`HTTP ${res.status}`);
+                }
                 
-                if (res.ok && res.headers.get('content-type')?.includes('image')) {
-                    const blob = await res.blob();
-                    const url = URL.createObjectURL(blob);
-                    qrEl.innerHTML = `<img src="${url}" alt="QR Code WhatsApp">`;
+                const html = await res.text();
+                // Extraire l'image du QR code depuis le HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const img = doc.querySelector('img');
+                if (img && img.src) {
+                    qrEl.innerHTML = `<img src="${img.src}" alt="QR Code WhatsApp">`;
                     statusEl.className = 'status connecting';
                     statusEl.innerHTML = '📱 Scannez ce QR code avec WhatsApp';
                 } else {
-                    const data = await res.json().catch(() => ({}));
-                    if (data.status === 'WORKING') {
-                        qrEl.innerHTML = '<p style="font-size:48px;">✅</p><p>Déjà connecté!</p>';
-                        statusEl.className = 'status connected';
-                        statusEl.innerHTML = '✅ WhatsApp est connecté!';
-                    } else {
-                        qrEl.innerHTML = '<p>QR non disponible. Cliquez sur Rafraîchir.</p>';
-                        statusEl.innerHTML = '⚠️ ' + (data.error || 'Réessayez');
-                    }
+                    // Si déjà connecté, le HTML contient le message de succès
+                    qrEl.innerHTML = html.includes('connecté') ? html : '<p>QR non disponible</p>';
                 }
             } catch (e) {
                 statusEl.className = 'status error';
                 statusEl.innerHTML = '❌ Erreur: ' + e.message;
                 qrEl.innerHTML = '<p>Erreur de chargement</p>';
+                console.error('QR refresh error:', e);
+            }
+        }
+        
+        async function resetSession() {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status connecting';
+            statusEl.innerHTML = '⏳ Réinitialisation de la session...';
+            
+            try {
+                const res = await fetch(`${getApiUrl()}/reset`, { method: 'POST' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                statusEl.innerHTML = '✅ ' + (data.message || 'Session réinitialisée');
+                setTimeout(() => {
+                    checkStatus();
+                }, 2000);
+            } catch (e) {
+                statusEl.className = 'status error';
+                statusEl.innerHTML = '❌ Erreur: ' + e.message;
+                console.error('Reset error:', e);
             }
         }
         

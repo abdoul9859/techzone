@@ -125,11 +125,22 @@ async def create_daily_sale(
         if sale_data.variant_id:
             variant = db.query(ProductVariant).filter(
                 ProductVariant.variant_id == sale_data.variant_id,
-                ProductVariant.product_id == sale_data.product_id,
-                ProductVariant.is_sold == False
+                ProductVariant.product_id == sale_data.product_id
             ).first()
             if not variant:
-                raise HTTPException(status_code=404, detail="Variante non trouvée ou déjà vendue")
+                raise HTTPException(status_code=404, detail="Variante non trouvée")
+            # Vérifier disponibilité selon le mode de gestion stock
+            variant_qty = getattr(variant, 'quantity', None)
+            if variant_qty is not None:
+                # Mode quantité: vérifier stock disponible
+                if variant_qty <= 0:
+                    raise HTTPException(status_code=400, detail=f"Stock insuffisant pour la variante {variant.imei_serial}")
+                if int(sale_data.quantity or 1) > variant_qty:
+                    raise HTTPException(status_code=400, detail=f"Quantité demandée ({sale_data.quantity}) supérieure au stock disponible ({variant_qty})")
+            else:
+                # Mode is_sold: vérifier si déjà vendue
+                if variant.is_sold:
+                    raise HTTPException(status_code=400, detail="Variante déjà vendue")
         else:
             # Vérifier le stock disponible pour les produits sans variantes
             if product.quantity < sale_data.quantity:
@@ -162,12 +173,19 @@ async def create_daily_sale(
     # Mettre à jour le stock si un produit est spécifié
     if sale_data.product_id:
         if sale_data.variant_id:
-            # Marquer la variante comme vendue (pas de décrément du stock principal)
-            variant.is_sold = True
-            # Créer un mouvement de stock pour la variante (quantité = 1 car c'est une variante unique)
+            # Gérer le stock de la variante selon le mode (quantity ou is_sold)
+            variant_qty = getattr(variant, 'quantity', None)
+            sold_qty = int(sale_data.quantity or 1)
+            if variant_qty is not None:
+                # Mode quantité: décrémenter le stock de la variante
+                variant.quantity = variant_qty - sold_qty
+            else:
+                # Mode is_sold (rétrocompat): marquer comme vendue
+                variant.is_sold = True
+            # Créer un mouvement de stock pour la variante
             stock_movement = StockMovement(
                 product_id=sale_data.product_id,
-                quantity=-1,  # Une variante = 1 unité
+                quantity=-sold_qty,
                 movement_type="OUT",
                 reference_type="DAILY_SALE",
                 reference_id=db_sale.sale_id,
@@ -267,10 +285,16 @@ async def delete_daily_sale(
     # Remettre le stock si un produit était associé
     if db_sale.product_id:
         if db_sale.variant_id:
-            # Remettre la variante en stock (marquer comme non vendue)
+            # Remettre la variante en stock selon le mode de gestion
             variant = db.query(ProductVariant).filter(ProductVariant.variant_id == db_sale.variant_id).first()
             if variant:
-                variant.is_sold = False
+                variant_qty = getattr(variant, 'quantity', None)
+                if variant_qty is not None:
+                    # Mode quantité: restaurer le stock
+                    variant.quantity = (variant_qty or 0) + int(db_sale.quantity or 1)
+                else:
+                    # Mode is_sold: réactiver la variante
+                    variant.is_sold = False
         else:
             # Remettre le stock du produit principal
             product = db.query(Product).filter(Product.product_id == db_sale.product_id).first()

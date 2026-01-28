@@ -525,10 +525,13 @@ class InvoiceItem(Base):
     # Prix externe et bénéfice (pour produits achetés dans d'autres boutiques)
     external_price = Column(Numeric(10, 2), nullable=True)  # Prix d'achat externe (optionnel)
     external_profit = Column(Numeric(12, 2), nullable=True)  # Bénéfice calculé (total - external_price * quantity)
+    # Variante associée (pour restauration stock lors de suppression)
+    variant_id = Column(Integer, ForeignKey("product_variants.variant_id"), nullable=True)
     
     # Relations
     invoice = relationship("Invoice", back_populates="items")
     product = relationship("Product")
+    variant = relationship("ProductVariant")
 
 class InvoiceExchangeItem(Base):
     __tablename__ = "invoice_exchange_items"

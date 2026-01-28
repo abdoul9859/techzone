@@ -1,10 +1,12 @@
 techzonesn.cc {
-    reverse_proxy app:8000
-
-    # WhatsApp HTTP API (WAHA) accessible via https://techzonesn.cc/waha/api
-    handle_path /waha/* {
-        reverse_proxy waha:3000
+    # WhatsApp service accessible via https://techzonesn.cc/whatsapp
+    handle /whatsapp/* {
+        uri strip_prefix /whatsapp
+        reverse_proxy whatsapp-free:3002
     }
+
+    # Main application
+    reverse_proxy app:8000
 }
 
 n8n.techzonesn.cc {
